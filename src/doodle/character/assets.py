@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 from PySide6.QtGui import QPixmap
 
@@ -72,3 +72,40 @@ def load_asset(
         raise ValueError(f"Failed to decode image asset from {asset_path}")
 
     return pixmap
+
+
+def load_animation_frames(
+    character_name: str,
+    animation_name: str,
+    assets_dir: Optional[Path] = None,
+) -> List[QPixmap]:
+    """Load an ordered list of QPixmap frames for a character's named animation.
+
+    Raises FileNotFoundError if the directory or frame assets do not exist.
+    Raises ValueError if any frame image fails to decode.
+    """
+    base_dir = Path(assets_dir) if assets_dir is not None else DEFAULT_ASSETS_DIR
+    target_dir = base_dir / character_name.lower() / animation_name.lower()
+
+    if not target_dir.is_dir():
+        raise FileNotFoundError(
+            f"Animation directory for character '{character_name}' at {target_dir} not found"
+        )
+
+    frame_files = sorted(target_dir.glob("frame_*.png"))
+    if not frame_files:
+        frame_files = sorted(target_dir.glob("*.png"))
+
+    if not frame_files:
+        raise FileNotFoundError(
+            f"No frame PNG assets found for character '{character_name}' animation '{animation_name}' at {target_dir}"
+        )
+
+    frames: List[QPixmap] = []
+    for f in frame_files:
+        pix = QPixmap(str(f))
+        if pix.isNull():
+            raise ValueError(f"Failed to decode frame from {f}")
+        frames.append(pix)
+
+    return frames

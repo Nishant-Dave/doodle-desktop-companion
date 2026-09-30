@@ -11,7 +11,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QApplication
 
-from doodle.character.assets import load_asset, resolve_asset_path, DEFAULT_ASSETS_DIR
+from doodle.character.assets import (
+    DEFAULT_ASSETS_DIR,
+    load_animation_frames,
+    load_asset,
+    resolve_asset_path,
+)
 from doodle.character.character import Character
 from doodle.character.state import CharacterState
 from doodle.desktop.companion_window import CompanionWindow
@@ -44,15 +49,20 @@ class TestCharacterState(unittest.TestCase):
         character = Character()
         self.assertEqual(character.state, CharacterState.IDLE)
 
-        # Transitioning to state without asset (e.g. SIT) updates state safely
+        # Transitioning to SIT updates state safely and plays SIT animation
         character.set_state(CharacterState.SIT)
         self.assertEqual(character.state, CharacterState.SIT)
-        self.assertIsNone(character.visual)
+        self.assertIsNotNone(character.visual)
 
-        # Transitioning back to IDLE restores visual
+        # Transitioning back to IDLE restores idle visual
         character.set_state(CharacterState.IDLE)
         self.assertEqual(character.state, CharacterState.IDLE)
         self.assertIsNotNone(character.visual)
+
+    def test_character_without_assets_has_none_visual(self) -> None:
+        character = Character(name="unknown_character")
+        self.assertEqual(character.state, CharacterState.IDLE)
+        self.assertIsNone(character.visual)
 
 
 class TestAssetLoading(unittest.TestCase):
@@ -87,6 +97,12 @@ class TestAssetLoading(unittest.TestCase):
             self.assertFalse(pixmap.isNull())
         finally:
             os.chdir(original_cwd)
+
+    def test_panda_animation_frames_loaded(self) -> None:
+        for anim_name in ("idle", "sit", "sleep", "stretch", "attention"):
+            frames = load_animation_frames("panda", anim_name)
+            self.assertGreaterEqual(len(frames), 2)
+            self.assertTrue(all(not f.isNull() for f in frames))
 
 
 class TestWindowIntegration(unittest.TestCase):

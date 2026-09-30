@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 
 from PySide6.QtCore import QPoint, QRect, Qt
-from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPaintEvent, QPen
+from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPaintEvent, QPen, QPixmap
 from PySide6.QtWidgets import QWidget
 
 if TYPE_CHECKING:
@@ -29,7 +29,7 @@ class CompanionWindow(QWidget):
     ) -> None:
         super().__init__(parent)
 
-        self._character: Optional[Character] = character
+        self._character: Optional[Character] = None
 
         self.setWindowTitle("Doodle")
         self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
@@ -43,6 +43,7 @@ class CompanionWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
         self.set_default_position()
+        self.set_character(character)
 
     @property
     def character(self) -> Optional[Character]:
@@ -51,7 +52,21 @@ class CompanionWindow(QWidget):
 
     def set_character(self, character: Optional[Character]) -> None:
         """Attach or update the character displayed in this window."""
+        if self._character is not None:
+            try:
+                self._character.frame_changed.disconnect(self._on_frame_changed)
+            except (RuntimeError, TypeError):
+                pass
+
         self._character = character
+
+        if self._character is not None:
+            self._character.frame_changed.connect(self._on_frame_changed)
+
+        self.update()
+
+    def _on_frame_changed(self, _pixmap: QPixmap) -> None:
+        """Slot invoked whenever the character's active animation frame advances."""
         self.update()
 
     def set_default_position(self) -> None:
