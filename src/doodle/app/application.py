@@ -5,10 +5,10 @@ from __future__ import annotations
 import sys
 from typing import Sequence
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication
 
 from doodle.app.lifecycle import AppLifecycle
+from doodle.desktop.companion_window import CompanionWindow
 
 
 class DoodleApplication:
@@ -33,8 +33,8 @@ class DoodleApplication:
         self._lifecycle = AppLifecycle()
         self._qapp.aboutToQuit.connect(self._lifecycle.shutdown)
 
-        # Minimal temporary window for Milestone 1 Task 1 foundation
-        self._window: QWidget = self._create_initial_window()
+        # Transparent desktop companion window
+        self._window: CompanionWindow = CompanionWindow()
 
     @property
     def lifecycle(self) -> AppLifecycle:
@@ -47,22 +47,9 @@ class DoodleApplication:
         return self._qapp
 
     @property
-    def window(self) -> QWidget:
-        """Return the root window instance."""
+    def window(self) -> CompanionWindow:
+        """Return the root companion window instance."""
         return self._window
-
-    def _create_initial_window(self) -> QWidget:
-        """Create a minimal foundation window for startup validation."""
-        window = QWidget()
-        window.setWindowTitle("Doodle")
-        window.resize(240, 160)
-
-        layout = QVBoxLayout(window)
-        label = QLabel("Doodle Desktop Companion\n(Foundation)", window)
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(label)
-
-        return window
 
     def run(self) -> int:
         """Start the application, show the window, and enter the Qt event loop."""

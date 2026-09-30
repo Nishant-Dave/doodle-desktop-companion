@@ -9,6 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication
 from doodle.app.application import DoodleApplication
 from doodle.app.lifecycle import AppLifecycle
+from doodle.desktop.companion_window import CompanionWindow
 
 
 class TestAppLifecycle(unittest.TestCase):
@@ -43,6 +44,7 @@ class TestDoodleApplication(unittest.TestCase):
         self.assertEqual(app.qapp.applicationName(), "Doodle")
         self.assertIsInstance(app.lifecycle, AppLifecycle)
         self.assertIsNotNone(app.window)
+        self.assertIsInstance(app.window, CompanionWindow)
         self.assertEqual(app.window.windowTitle(), "Doodle")
 
 
