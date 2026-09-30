@@ -8,6 +8,7 @@ from typing import Sequence
 from PySide6.QtWidgets import QApplication
 
 from doodle.app.lifecycle import AppLifecycle
+from doodle.character.character import Character
 from doodle.desktop.companion_window import CompanionWindow
 
 
@@ -33,8 +34,9 @@ class DoodleApplication:
         self._lifecycle = AppLifecycle()
         self._qapp.aboutToQuit.connect(self._lifecycle.shutdown)
 
-        # Transparent desktop companion window
-        self._window: CompanionWindow = CompanionWindow()
+        # Character and transparent desktop companion window
+        self._character = Character(name="panda")
+        self._window: CompanionWindow = CompanionWindow(character=self._character)
 
     @property
     def lifecycle(self) -> AppLifecycle:
@@ -45,6 +47,11 @@ class DoodleApplication:
     def qapp(self) -> QApplication:
         """Return the underlying Qt application instance."""
         return self._qapp
+
+    @property
+    def character(self) -> Character:
+        """Return the root character instance."""
+        return self._character
 
     @property
     def window(self) -> CompanionWindow:

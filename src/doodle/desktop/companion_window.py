@@ -5,11 +5,14 @@ Provides a transparent, frameless, always-on-top top-level window.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPaintEvent, QPen
 from PySide6.QtWidgets import QWidget
+
+if TYPE_CHECKING:
+    from doodle.character.character import Character
 
 DEFAULT_WINDOW_WIDTH: int = 160
 DEFAULT_WINDOW_HEIGHT: int = 160
@@ -19,8 +22,14 @@ DEFAULT_SCREEN_MARGIN: int = 24
 class CompanionWindow(QWidget):
     """Top-level transparent and frameless desktop shell window."""
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        character: Optional[Character] = None,
+        parent: Optional[QWidget] = None,
+    ) -> None:
         super().__init__(parent)
+
+        self._character: Optional[Character] = character
 
         self.setWindowTitle("Doodle")
         self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
@@ -34,6 +43,16 @@ class CompanionWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
         self.set_default_position()
+
+    @property
+    def character(self) -> Optional[Character]:
+        """Return the attached character instance, if any."""
+        return self._character
+
+    def set_character(self, character: Optional[Character]) -> None:
+        """Attach or update the character displayed in this window."""
+        self._character = character
+        self.update()
 
     def set_default_position(self) -> None:
         """Position the window at a sensible default location on the screen.
@@ -58,15 +77,28 @@ class CompanionWindow(QWidget):
         self.move(QPoint(100, 100))
 
     def paintEvent(self, event: QPaintEvent) -> None:
-        """Render temporary placeholder visual.
+        """Render character visual or temporary placeholder.
 
-        This placeholder confirms the transparent window boundary and will be
-        replaced by the Character rendering layer in subsequent milestones.
+        Renders the attached character visual centered in the transparent window.
+        If no character visual is available, renders a subtle placeholder.
         """
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Subtly tinted rounded placeholder to visually demonstrate transparency
+        pixmap = self._character.visual if self._character is not None else None
+        if pixmap is not None and not pixmap.isNull():
+            # Render character visual centered with smooth scaling to fit window
+            scaled = pixmap.scaled(
+                self.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            x = (self.width() - scaled.width()) // 2
+            y = (self.height() - scaled.height()) // 2
+            painter.drawPixmap(x, y, scaled)
+            return
+
+        # Subtly tinted rounded placeholder if no character visual is attached
         rect = self.rect().adjusted(4, 4, -4, -4)
         painter.setBrush(QColor(30, 30, 35, 200))
         painter.setPen(QPen(QColor(160, 160, 180, 220), 1.5))
