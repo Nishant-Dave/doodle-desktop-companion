@@ -113,6 +113,9 @@ class PositionManager:
             return self._screen_bounds_provider()
         return get_usable_screen_bounds()
 
+    # Alias for naming consistency across desktop components
+    get_usable_screen_bounds = get_usable_bounds
+
     def clamp_to_screen(self, position: QPoint) -> QPoint:
         """Clamp a position to the usable screen boundary."""
         bounds = self.get_usable_bounds()

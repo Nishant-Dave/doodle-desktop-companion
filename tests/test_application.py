@@ -13,6 +13,7 @@ from doodle.character.character import Character
 from doodle.desktop.companion_window import CompanionWindow
 from doodle.desktop.tray import DoodleTrayIcon
 from doodle.persistence.settings import SettingsManager
+from doodle.ui.interaction_menu import InteractionMenu
 
 
 class TestAppLifecycle(unittest.TestCase):
@@ -51,6 +52,8 @@ class TestDoodleApplication(unittest.TestCase):
         self.assertIsNotNone(app.window)
         self.assertIsInstance(app.window, CompanionWindow)
         self.assertIsInstance(app.tray, DoodleTrayIcon)
+        self.assertIsInstance(app.menu, InteractionMenu)
+        self.assertFalse(app.menu.isVisible())
         self.assertEqual(app.window.windowTitle(), "Doodle")
 
 

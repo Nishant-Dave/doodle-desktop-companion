@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 DEFAULT_WINDOW_WIDTH: int = 160
 DEFAULT_WINDOW_HEIGHT: int = 160
 DEFAULT_SCREEN_MARGIN: int = 24
+DEFAULT_DRAG_THRESHOLD: int = 5
 
 
 class CompanionWindow(QWidget):
@@ -38,6 +39,11 @@ class CompanionWindow(QWidget):
 
     # Signal emitted when window position changes due to dragging or positioning
     character_moved = Signal(QPoint)
+    CHARACTER_MOVED = character_moved
+
+    # Signal emitted when the companion window is clicked without dragging
+    character_clicked = Signal()
+    CHARACTER_CLICKED = character_clicked
 
     def __init__(
         self,
@@ -51,6 +57,9 @@ class CompanionWindow(QWidget):
         self._character: Optional[Character] = None
         self._is_dragging: bool = False
         self._drag_start_offset: QPoint = QPoint(0, 0)
+        self._drag_start_pos: QPoint = QPoint(0, 0)
+        self._drag_occurred: bool = False
+        self._drag_threshold: int = DEFAULT_DRAG_THRESHOLD
 
         self.setWindowTitle("Doodle")
         self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
@@ -86,8 +95,22 @@ class CompanionWindow(QWidget):
 
     @property
     def is_dragging(self) -> bool:
-        """Return True if currently in an active drag operation."""
+        """Return True if currently in a mouse press or active drag operation."""
         return self._is_dragging
+
+    @property
+    def drag_occurred(self) -> bool:
+        """Return True if the current or most recent press exceeded drag threshold."""
+        return self._drag_occurred
+
+    @property
+    def drag_threshold(self) -> int:
+        """Return the distance threshold in pixels to differentiate click from drag."""
+        return self._drag_threshold
+
+    @drag_threshold.setter
+    def drag_threshold(self, value: int) -> None:
+        self._drag_threshold = max(1, value)
 
     @property
     def position_manager(self) -> PositionManager:
@@ -134,9 +157,11 @@ class CompanionWindow(QWidget):
         self._position_manager.set_window_size(self.size())
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
-        """Handle left mouse click to initiate dragging without jump."""
+        """Handle left mouse click to initiate dragging or click detection."""
         if event.button() == Qt.MouseButton.LeftButton:
             self._is_dragging = True
+            self._drag_occurred = False
+            self._drag_start_pos = event.globalPosition().toPoint()
             # Offset between the global pointer location and window top-left
             self._drag_start_offset = event.globalPosition().toPoint() - self.pos()
             event.accept()
@@ -146,7 +171,16 @@ class CompanionWindow(QWidget):
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         """Handle mouse movement during dragging, clamped to screen bounds."""
         if self._is_dragging and (event.buttons() & Qt.MouseButton.LeftButton):
-            target_pos = event.globalPosition().toPoint() - self._drag_start_offset
+            current_pos = event.globalPosition().toPoint()
+            delta = (current_pos - self._drag_start_pos).manhattanLength()
+            if not self._drag_occurred:
+                if delta >= self._drag_threshold:
+                    self._drag_occurred = True
+                else:
+                    event.accept()
+                    return
+
+            target_pos = current_pos - self._drag_start_offset
             clamped_pos = self._position_manager.clamp_to_screen(target_pos)
             if clamped_pos != self.pos():
                 self.move(clamped_pos)
@@ -156,14 +190,17 @@ class CompanionWindow(QWidget):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        """Handle mouse release to conclude dragging and persist final valid position."""
+        """Handle mouse release to conclude dragging or emit click interaction."""
         if event.button() == Qt.MouseButton.LeftButton and self._is_dragging:
             self._is_dragging = False
-            clamped_pos = self._position_manager.set_position(self.pos())
-            if clamped_pos != self.pos():
-                self.move(clamped_pos)
-            self._position_manager.save_position()
-            self.character_moved.emit(self.pos())
+            if self._drag_occurred:
+                clamped_pos = self._position_manager.set_position(self.pos())
+                if clamped_pos != self.pos():
+                    self.move(clamped_pos)
+                self._position_manager.save_position()
+                self.character_moved.emit(self.pos())
+            else:
+                self.character_clicked.emit()
             event.accept()
             return
         super().mouseReleaseEvent(event)

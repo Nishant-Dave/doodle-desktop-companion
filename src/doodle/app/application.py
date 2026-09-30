@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from typing import Optional, Sequence
 
+from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QApplication
 
 from doodle.app.lifecycle import AppLifecycle
 from doodle.character.character import Character
+from doodle.character.state import CharacterState
 from doodle.desktop.companion_window import CompanionWindow
 from doodle.desktop.tray import DoodleTrayIcon
 from doodle.persistence.settings import SettingsManager
+from doodle.ui.interaction_menu import InteractionMenu
+
+logger = logging.getLogger(__name__)
 
 
 class DoodleApplication:
@@ -50,6 +56,15 @@ class DoodleApplication:
             settings_manager=self._settings_manager,
         )
 
+        # Interaction menu (single managed instance to prevent duplicates)
+        self._menu: InteractionMenu = InteractionMenu(parent=self._window)
+        self._menu.action_requested.connect(self._on_menu_action_requested)
+        self._menu.dismissed.connect(self._on_menu_dismissed)
+
+        # Wire companion window interactions
+        self._window.character_clicked.connect(self._on_character_clicked)
+        self._window.character_moved.connect(self._on_character_moved)
+
         # System tray integration
         self._tray = DoodleTrayIcon(parent=self._window)
         self._tray.show_requested.connect(self.show_companion)
@@ -61,6 +76,7 @@ class DoodleApplication:
         self._qapp.aboutToQuit.connect(self._lifecycle.shutdown)
 
         # Register shutdown cleanup hooks in order
+        self._lifecycle.add_shutdown_hook(self._menu.cleanup)
         self._lifecycle.add_shutdown_hook(self._tray.cleanup)
         self._lifecycle.add_shutdown_hook(self._character.stop_animation)
         self._lifecycle.add_shutdown_hook(self._save_state)
@@ -95,6 +111,11 @@ class DoodleApplication:
         """Return the system tray icon component."""
         return self._tray
 
+    @property
+    def menu(self) -> InteractionMenu:
+        """Return the managed interaction menu component."""
+        return self._menu
+
     def show_companion(self) -> None:
         """Make the companion window visible and bring it to front."""
         self._window.show()
@@ -103,7 +124,43 @@ class DoodleApplication:
 
     def hide_companion(self) -> None:
         """Hide the companion window while keeping the application running in the tray."""
+        if self._menu.isVisible():
+            self._menu.dismiss()
         self._window.hide()
+
+    def show_interaction_menu(self) -> None:
+        """Open the interaction menu adjacent to the companion window."""
+        self._character.set_state(CharacterState.ATTENTION)
+        bounds = self._window.position_manager.get_usable_screen_bounds()
+        self._menu.show_near(
+            target_rect=self._window.geometry(),
+            screen_bounds=bounds,
+        )
+
+    def dismiss_interaction_menu(self) -> None:
+        """Dismiss the interaction menu if visible."""
+        self._menu.dismiss()
+
+    def _on_character_clicked(self) -> None:
+        """Slot invoked when user clicks the companion character."""
+        if self._menu.isVisible():
+            self._menu.dismiss()
+        else:
+            self.show_interaction_menu()
+
+    def _on_character_moved(self, _pos: QPoint) -> None:
+        """Slot invoked when companion window moves during dragging."""
+        if self._menu.isVisible():
+            self._menu.dismiss()
+
+    def _on_menu_dismissed(self) -> None:
+        """Slot invoked when interaction menu is dismissed."""
+        if self._character.state == CharacterState.ATTENTION:
+            self._character.set_state(CharacterState.IDLE)
+
+    def _on_menu_action_requested(self, action_id: str) -> None:
+        """Slot invoked when a menu action is requested (action boundary)."""
+        logger.info("Menu action requested: %s", action_id)
 
     def quit(self) -> None:
         """Perform clean shutdown and terminate the Qt application event loop."""

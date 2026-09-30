@@ -131,6 +131,81 @@ class TestCompanionWindow(unittest.TestCase):
         self.window.mouseReleaseEvent(release_event)
         self.assertFalse(self.window.is_dragging)
 
+    def test_click_vs_drag_discrimination(self) -> None:
+        """Verify normal click emits character_clicked and small movement under threshold is treated as click."""
+        click_count = 0
+        moved_count = 0
+        self.window.character_clicked.connect(lambda: nonlocal_inc_click())
+        self.window.character_moved.connect(lambda _pos: nonlocal_inc_move())
+
+        def nonlocal_inc_click() -> None:
+            nonlocal click_count
+            click_count += 1
+
+        def nonlocal_inc_move() -> None:
+            nonlocal moved_count
+            moved_count += 1
+
+        # Signal alias check on class level
+        self.assertIs(CompanionWindow.character_clicked, CompanionWindow.CHARACTER_CLICKED)
+        self.assertIs(CompanionWindow.character_moved, CompanionWindow.CHARACTER_MOVED)
+
+        # 1. Clean click without any mouse movement
+        press = QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            QPointF(30, 30),
+            QPointF(130, 130),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        self.window.mousePressEvent(press)
+        release = QMouseEvent(
+            QEvent.Type.MouseButtonRelease,
+            QPointF(30, 30),
+            QPointF(130, 130),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        self.window.mouseReleaseEvent(release)
+        self.assertEqual(click_count, 1)
+        self.assertEqual(moved_count, 0)
+        self.assertFalse(self.window.drag_occurred)
+
+        # 2. Movement under threshold (e.g. 2 pixels with threshold=5) still counts as click
+        self.window.mousePressEvent(press)
+        small_move = QMouseEvent(
+            QEvent.Type.MouseMove,
+            QPointF(31, 31),
+            QPointF(131, 131),
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        self.window.mouseMoveEvent(small_move)
+        self.assertFalse(self.window.drag_occurred)
+        self.window.mouseReleaseEvent(release)
+        self.assertEqual(click_count, 2)
+        self.assertEqual(moved_count, 0)
+
+        # 3. Movement exceeding threshold counts as drag, does NOT emit click
+        self.window.mousePressEvent(press)
+        large_move = QMouseEvent(
+            QEvent.Type.MouseMove,
+            QPointF(40, 40),
+            QPointF(140, 140),
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        self.window.mouseMoveEvent(large_move)
+        self.assertTrue(self.window.drag_occurred)
+        self.window.mouseReleaseEvent(release)
+        # Click count remains 2; moved count increased
+        self.assertEqual(click_count, 2)
+        self.assertGreater(moved_count, 0)
+
     def test_character_rendering_preserved(self) -> None:
         char = Character(name="panda")
         self.window.set_character(char)
