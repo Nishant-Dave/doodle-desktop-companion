@@ -10,6 +10,7 @@ from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QApplication
 
 from doodle.app.lifecycle import AppLifecycle
+from doodle.behavior.engine import BehaviorEngine
 from doodle.character.character import Character
 from doodle.character.state import CharacterState
 from doodle.desktop.companion_window import CompanionWindow
@@ -31,6 +32,7 @@ class DoodleApplication:
         self,
         argv: Sequence[str] | None = None,
         settings_manager: Optional[SettingsManager] = None,
+        behavior_engine: Optional[BehaviorEngine] = None,
     ) -> None:
         self._argv = list(argv) if argv is not None else sys.argv
 
@@ -56,6 +58,22 @@ class DoodleApplication:
             settings_manager=self._settings_manager,
         )
 
+        # Behavior engine
+        if behavior_engine is not None:
+            self._behavior_engine = behavior_engine
+            if self._behavior_engine.character is None:
+                self._behavior_engine.attach_character(self._character)
+        else:
+            self._behavior_engine = BehaviorEngine(
+                character=self._character,
+                parent=self._window,
+            )
+
+        # Wire animation completion to behavior engine
+        self._character.animation_finished.connect(
+            self._behavior_engine.on_animation_finished
+        )
+
         # Interaction menu (single managed instance to prevent duplicates)
         self._menu: InteractionMenu = InteractionMenu(parent=self._window)
         self._menu.action_requested.connect(self._on_menu_action_requested)
@@ -64,6 +82,8 @@ class DoodleApplication:
         # Wire companion window interactions
         self._window.character_clicked.connect(self._on_character_clicked)
         self._window.character_moved.connect(self._on_character_moved)
+        self._window.drag_started.connect(self._behavior_engine.on_drag_started)
+        self._window.drag_finished.connect(self._behavior_engine.on_drag_finished)
 
         # System tray integration
         self._tray = DoodleTrayIcon(parent=self._window)
@@ -76,6 +96,7 @@ class DoodleApplication:
         self._qapp.aboutToQuit.connect(self._lifecycle.shutdown)
 
         # Register shutdown cleanup hooks in order
+        self._lifecycle.add_shutdown_hook(self._behavior_engine.cleanup)
         self._lifecycle.add_shutdown_hook(self._menu.cleanup)
         self._lifecycle.add_shutdown_hook(self._tray.cleanup)
         self._lifecycle.add_shutdown_hook(self._character.stop_animation)
@@ -116,20 +137,28 @@ class DoodleApplication:
         """Return the managed interaction menu component."""
         return self._menu
 
+    @property
+    def behavior_engine(self) -> BehaviorEngine:
+        """Return the managed behavior engine component."""
+        return self._behavior_engine
+
     def show_companion(self) -> None:
         """Make the companion window visible and bring it to front."""
+        self._behavior_engine.on_show_requested()
         self._window.show()
         self._window.raise_()
         self._window.activateWindow()
 
     def hide_companion(self) -> None:
         """Hide the companion window while keeping the application running in the tray."""
+        self._behavior_engine.on_hide_requested()
         if self._menu.isVisible():
             self._menu.dismiss()
         self._window.hide()
 
     def show_interaction_menu(self) -> None:
         """Open the interaction menu adjacent to the companion window."""
+        self._behavior_engine.on_menu_opened()
         self._character.set_state(CharacterState.ATTENTION)
         bounds = self._window.position_manager.get_usable_screen_bounds()
         self._menu.show_near(
@@ -143,18 +172,21 @@ class DoodleApplication:
 
     def _on_character_clicked(self) -> None:
         """Slot invoked when user clicks the companion character."""
+        self._behavior_engine.on_character_clicked()
         if self._menu.isVisible():
             self._menu.dismiss()
         else:
             self.show_interaction_menu()
 
-    def _on_character_moved(self, _pos: QPoint) -> None:
+    def _on_character_moved(self, pos: QPoint) -> None:
         """Slot invoked when companion window moves during dragging."""
+        self._behavior_engine.on_character_moved(pos)
         if self._menu.isVisible():
             self._menu.dismiss()
 
     def _on_menu_dismissed(self) -> None:
         """Slot invoked when interaction menu is dismissed."""
+        self._behavior_engine.on_menu_dismissed()
         if self._character.state == CharacterState.ATTENTION:
             self._character.set_state(CharacterState.IDLE)
 
@@ -174,6 +206,7 @@ class DoodleApplication:
     def run(self) -> int:
         """Start the application, show tray and window, and enter the Qt event loop."""
         self._lifecycle.startup()
+        self._behavior_engine.start_idle_timer()
         self._tray.show()
         self._window.show()
         exit_code = self._qapp.exec()

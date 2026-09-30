@@ -90,14 +90,18 @@ class Character(QObject):
         """Stop the currently playing animation."""
         self._animation_controller.stop()
 
-    def set_state(self, state: CharacterState) -> None:
+    def set_state(self, state: CharacterState, loop: Optional[bool] = None) -> None:
         """Update the character state and request the corresponding animation if available."""
-        if self._state == state and self.current_animation_name == state.value.lower():
+        if (
+            self._state == state
+            and self.current_animation_name == state.value.lower()
+            and loop is None
+        ):
             return
         self._state = state
         anim_name = state.value.lower()
         if self._animation_controller.has_animation(anim_name):
-            self.play_animation(anim_name)
+            self.play_animation(anim_name, loop=loop)
         else:
             self._animation_controller.stop()
 

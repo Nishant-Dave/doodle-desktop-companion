@@ -45,6 +45,10 @@ class CompanionWindow(QWidget):
     character_clicked = Signal()
     CHARACTER_CLICKED = character_clicked
 
+    # Signals emitted when drag operation begins and concludes
+    drag_started = Signal()
+    drag_finished = Signal()
+
     def __init__(
         self,
         character: Optional[Character] = None,
@@ -176,6 +180,7 @@ class CompanionWindow(QWidget):
             if not self._drag_occurred:
                 if delta >= self._drag_threshold:
                     self._drag_occurred = True
+                    self.drag_started.emit()
                 else:
                     event.accept()
                     return
@@ -194,6 +199,7 @@ class CompanionWindow(QWidget):
         if event.button() == Qt.MouseButton.LeftButton and self._is_dragging:
             self._is_dragging = False
             if self._drag_occurred:
+                self.drag_finished.emit()
                 clamped_pos = self._position_manager.set_position(self.pos())
                 if clamped_pos != self.pos():
                     self.move(clamped_pos)

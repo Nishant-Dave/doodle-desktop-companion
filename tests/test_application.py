@@ -9,6 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication
 from doodle.app.application import DoodleApplication
 from doodle.app.lifecycle import AppLifecycle
+from doodle.behavior.engine import BehaviorEngine
 from doodle.character.character import Character
 from doodle.desktop.companion_window import CompanionWindow
 from doodle.desktop.tray import DoodleTrayIcon
@@ -53,6 +54,7 @@ class TestDoodleApplication(unittest.TestCase):
         self.assertIsInstance(app.window, CompanionWindow)
         self.assertIsInstance(app.tray, DoodleTrayIcon)
         self.assertIsInstance(app.menu, InteractionMenu)
+        self.assertIsInstance(app.behavior_engine, BehaviorEngine)
         self.assertFalse(app.menu.isVisible())
         self.assertEqual(app.window.windowTitle(), "Doodle")
 
