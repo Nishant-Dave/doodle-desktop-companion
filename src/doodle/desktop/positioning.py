@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from PySide6.QtCore import QPoint, QRect, QSize
 from PySide6.QtGui import QGuiApplication, QScreen
+
+if TYPE_CHECKING:
+    from doodle.persistence.settings import SettingsManager
 
 DEFAULT_SCREEN_MARGIN: int = 24
 FALLBACK_SCREEN_BOUNDS = QRect(0, 0, 1920, 1080)
@@ -61,16 +64,18 @@ def calculate_default_position(
 
 
 class PositionManager:
-    """Coordinates window positioning and screen-boundary clamping."""
+    """Coordinates window positioning, screen-boundary clamping, and position persistence."""
 
     def __init__(
         self,
         window_size: QSize,
         initial_position: Optional[QPoint] = None,
         screen_bounds_provider: Optional[Callable[[], QRect]] = None,
+        settings_manager: Optional[SettingsManager] = None,
     ) -> None:
         self._window_size = QSize(window_size)
         self._screen_bounds_provider = screen_bounds_provider
+        self._settings_manager = settings_manager
         self._position = (
             QPoint(initial_position) if initial_position is not None else QPoint(0, 0)
         )
@@ -83,6 +88,15 @@ class PositionManager:
     def set_window_size(self, size: QSize) -> None:
         """Update tracked window size."""
         self._window_size = QSize(size)
+
+    @property
+    def settings_manager(self) -> Optional[SettingsManager]:
+        """Return the associated settings manager, if any."""
+        return self._settings_manager
+
+    def set_settings_manager(self, manager: Optional[SettingsManager]) -> None:
+        """Attach or update the settings manager."""
+        self._settings_manager = manager
 
     def get_position(self) -> QPoint:
         """Return the current desktop position."""
@@ -108,3 +122,23 @@ class PositionManager:
         """Compute the sensible initial default position on the screen."""
         bounds = self.get_usable_bounds()
         return calculate_default_position(self._window_size, bounds, margin=margin)
+
+    def restore_position(self) -> QPoint:
+        """Restore saved position validated against current screen, or fallback to default."""
+        if self._settings_manager is not None:
+            saved_pos = self._settings_manager.load_window_position()
+            if saved_pos is not None:
+                clamped = self.clamp_to_screen(saved_pos)
+                self._position = clamped
+                return QPoint(self._position)
+
+        default_pos = self.get_default_position()
+        self._position = default_pos
+        return QPoint(self._position)
+
+    def save_position(self, position: Optional[QPoint] = None) -> None:
+        """Save the current or specified position via the settings manager."""
+        if position is not None:
+            self.set_position(position)
+        if self._settings_manager is not None:
+            self._settings_manager.save_window_position(self._position)

@@ -26,6 +26,7 @@ from doodle.desktop.positioning import (
 
 if TYPE_CHECKING:
     from doodle.character.character import Character
+    from doodle.persistence.settings import SettingsManager
 
 DEFAULT_WINDOW_WIDTH: int = 160
 DEFAULT_WINDOW_HEIGHT: int = 160
@@ -41,6 +42,8 @@ class CompanionWindow(QWidget):
     def __init__(
         self,
         character: Optional[Character] = None,
+        position_manager: Optional[PositionManager] = None,
+        settings_manager: Optional[SettingsManager] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -60,13 +63,20 @@ class CompanionWindow(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
-        # Initialize positioning manager delegating screen boundary logic
-        self._position_manager = PositionManager(
-            window_size=self.size(),
-            screen_bounds_provider=self._get_screen_bounds,
-        )
+        # Initialize positioning manager delegating screen boundary and persistence logic
+        if position_manager is not None:
+            self._position_manager = position_manager
+            if settings_manager is not None:
+                self._position_manager.set_settings_manager(settings_manager)
+        else:
+            self._position_manager = PositionManager(
+                window_size=self.size(),
+                screen_bounds_provider=self._get_screen_bounds,
+                settings_manager=settings_manager,
+            )
 
-        self.set_default_position()
+        # Restore persisted position or default to bottom-right
+        self.restore_or_default_position()
         self.set_character(character)
 
     @property
@@ -107,9 +117,15 @@ class CompanionWindow(QWidget):
         """Query available screen bounds for this window."""
         return get_usable_screen_bounds(self.screen())
 
+    def restore_or_default_position(self) -> None:
+        """Restore position from persistence or fall back to default position."""
+        pos = self._position_manager.restore_position()
+        self.move(pos)
+
     def set_default_position(self) -> None:
-        """Position the window at a sensible default location on the screen."""
+        """Position the window at the default location on the screen."""
         default_pos = self._position_manager.get_default_position()
+        self._position_manager.set_position(default_pos)
         self.move(default_pos)
 
     def resizeEvent(self, event: QResizeEvent) -> None:
@@ -140,12 +156,13 @@ class CompanionWindow(QWidget):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        """Handle mouse release to conclude dragging."""
+        """Handle mouse release to conclude dragging and persist final valid position."""
         if event.button() == Qt.MouseButton.LeftButton and self._is_dragging:
             self._is_dragging = False
-            clamped_pos = self._position_manager.clamp_to_screen(self.pos())
+            clamped_pos = self._position_manager.set_position(self.pos())
             if clamped_pos != self.pos():
                 self.move(clamped_pos)
+            self._position_manager.save_position()
             self.character_moved.emit(self.pos())
             event.accept()
             return
