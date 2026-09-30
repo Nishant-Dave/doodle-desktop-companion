@@ -7,9 +7,22 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
-from PySide6.QtCore import QPoint, QRect, Qt
-from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPaintEvent, QPen, QPixmap
+from PySide6.QtCore import QPoint, QRect, Qt, Signal
+from PySide6.QtGui import (
+    QColor,
+    QMouseEvent,
+    QPainter,
+    QPaintEvent,
+    QPen,
+    QPixmap,
+    QResizeEvent,
+)
 from PySide6.QtWidgets import QWidget
+
+from doodle.desktop.positioning import (
+    PositionManager,
+    get_usable_screen_bounds,
+)
 
 if TYPE_CHECKING:
     from doodle.character.character import Character
@@ -22,6 +35,9 @@ DEFAULT_SCREEN_MARGIN: int = 24
 class CompanionWindow(QWidget):
     """Top-level transparent and frameless desktop shell window."""
 
+    # Signal emitted when window position changes due to dragging or positioning
+    character_moved = Signal(QPoint)
+
     def __init__(
         self,
         character: Optional[Character] = None,
@@ -30,6 +46,8 @@ class CompanionWindow(QWidget):
         super().__init__(parent)
 
         self._character: Optional[Character] = None
+        self._is_dragging: bool = False
+        self._drag_start_offset: QPoint = QPoint(0, 0)
 
         self.setWindowTitle("Doodle")
         self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
@@ -42,6 +60,12 @@ class CompanionWindow(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
+        # Initialize positioning manager delegating screen boundary logic
+        self._position_manager = PositionManager(
+            window_size=self.size(),
+            screen_bounds_provider=self._get_screen_bounds,
+        )
+
         self.set_default_position()
         self.set_character(character)
 
@@ -49,6 +73,16 @@ class CompanionWindow(QWidget):
     def character(self) -> Optional[Character]:
         """Return the attached character instance, if any."""
         return self._character
+
+    @property
+    def is_dragging(self) -> bool:
+        """Return True if currently in an active drag operation."""
+        return self._is_dragging
+
+    @property
+    def position_manager(self) -> PositionManager:
+        """Return the position manager associated with this window."""
+        return self._position_manager
 
     def set_character(self, character: Optional[Character]) -> None:
         """Attach or update the character displayed in this window."""
@@ -69,27 +103,53 @@ class CompanionWindow(QWidget):
         """Slot invoked whenever the character's active animation frame advances."""
         self.update()
 
+    def _get_screen_bounds(self) -> QRect:
+        """Query available screen bounds for this window."""
+        return get_usable_screen_bounds(self.screen())
+
     def set_default_position(self) -> None:
-        """Position the window at a sensible default location on the screen.
+        """Position the window at a sensible default location on the screen."""
+        default_pos = self._position_manager.get_default_position()
+        self.move(default_pos)
 
-        Defaults to the bottom-right corner of the available primary screen area,
-        leaving a small margin above the taskbar.
-        """
-        screen = self.screen() or QGuiApplication.primaryScreen()
-        if screen is not None:
-            available_geom: QRect = screen.availableGeometry()
-            if (
-                available_geom.isValid()
-                and available_geom.width() > self.width()
-                and available_geom.height() > self.height()
-            ):
-                x = available_geom.right() - self.width() - DEFAULT_SCREEN_MARGIN
-                y = available_geom.bottom() - self.height() - DEFAULT_SCREEN_MARGIN
-                self.move(QPoint(x, y))
-                return
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        """Synchronize window size updates with the position manager."""
+        super().resizeEvent(event)
+        self._position_manager.set_window_size(self.size())
 
-        # Safe fallback position if screen geometry is unavailable
-        self.move(QPoint(100, 100))
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        """Handle left mouse click to initiate dragging without jump."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._is_dragging = True
+            # Offset between the global pointer location and window top-left
+            self._drag_start_offset = event.globalPosition().toPoint() - self.pos()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        """Handle mouse movement during dragging, clamped to screen bounds."""
+        if self._is_dragging and (event.buttons() & Qt.MouseButton.LeftButton):
+            target_pos = event.globalPosition().toPoint() - self._drag_start_offset
+            clamped_pos = self._position_manager.clamp_to_screen(target_pos)
+            if clamped_pos != self.pos():
+                self.move(clamped_pos)
+                self.character_moved.emit(clamped_pos)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        """Handle mouse release to conclude dragging."""
+        if event.button() == Qt.MouseButton.LeftButton and self._is_dragging:
+            self._is_dragging = False
+            clamped_pos = self._position_manager.clamp_to_screen(self.pos())
+            if clamped_pos != self.pos():
+                self.move(clamped_pos)
+            self.character_moved.emit(self.pos())
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     def paintEvent(self, event: QPaintEvent) -> None:
         """Render character visual or temporary placeholder.
