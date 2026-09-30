@@ -1,20 +1,28 @@
 """Application lifecycle management for Doodle.
 
-Handles startup and clean shutdown sequences for the application.
+Handles startup, shutdown hooks, and lifecycle state coordination for the application.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Callable, List
+from typing import Callable, List, Optional
+
+from PySide6.QtCore import QObject, Signal
 
 logger = logging.getLogger(__name__)
 
 
-class AppLifecycle:
-    """Manages the startup and shutdown phases of the application."""
+class AppLifecycle(QObject):
+    """Manages the startup, shutdown phases, and exit requests for the application."""
 
-    def __init__(self) -> None:
+    # Qt Signals for lifecycle events
+    started = Signal()
+    stopped = Signal()
+    exit_requested = Signal()
+
+    def __init__(self, parent: Optional[QObject] = None) -> None:
+        super().__init__(parent)
         self._is_running: bool = False
         self._shutdown_hooks: List[Callable[[], None]] = []
 
@@ -27,12 +35,18 @@ class AppLifecycle:
         """Register a callback to be called during application shutdown."""
         self._shutdown_hooks.append(hook)
 
+    def request_exit(self) -> None:
+        """Request the application to initiate a clean exit."""
+        logger.info("Application exit requested through lifecycle.")
+        self.exit_requested.emit()
+
     def startup(self) -> None:
         """Execute application startup sequence."""
         if self._is_running:
             return
         logger.info("Doodle application lifecycle starting up.")
         self._is_running = True
+        self.started.emit()
 
     def shutdown(self) -> None:
         """Execute clean application shutdown sequence."""
@@ -45,3 +59,4 @@ class AppLifecycle:
             except Exception:
                 logger.exception("Error executing shutdown hook.")
         self._is_running = False
+        self.stopped.emit()

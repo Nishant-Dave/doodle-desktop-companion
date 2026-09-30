@@ -115,7 +115,7 @@ class CompanionWindow(QWidget):
 
     def _get_screen_bounds(self) -> QRect:
         """Query available screen bounds for this window."""
-        return get_usable_screen_bounds(self.screen())
+        return get_usable_screen_bounds()
 
     def restore_or_default_position(self) -> None:
         """Restore position from persistence or fall back to default position."""
