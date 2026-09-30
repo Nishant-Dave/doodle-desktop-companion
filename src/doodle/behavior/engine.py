@@ -111,7 +111,15 @@ class BehaviorEngine(QObject):
     @property
     def is_idle_eligible(self) -> bool:
         """Return True if conditions allow idle behavior timer to run."""
-        return self._is_visible and not self._is_menu_open and not self._is_dragging
+        state_is_idle = (
+            self._character is None or self._character.state == CharacterState.IDLE
+        )
+        return (
+            self._is_visible
+            and not self._is_menu_open
+            and not self._is_dragging
+            and state_is_idle
+        )
 
     def get_current_context(self) -> BehaviorContext:
         """Assemble current environmental context for rule evaluation."""

@@ -95,7 +95,7 @@ class Character(QObject):
         if (
             self._state == state
             and self.current_animation_name == state.value.lower()
-            and loop is None
+            and self._animation_controller.is_playing
         ):
             return
         self._state = state
