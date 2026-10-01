@@ -94,6 +94,9 @@ class DoodleApplication:
         self._window.character_moved.connect(self._on_character_moved)
         self._window.drag_started.connect(self._behavior_engine.on_drag_started)
         self._window.drag_finished.connect(self._behavior_engine.on_drag_finished)
+        self._window.cursor_entered_proximity.connect(
+            self._behavior_engine.on_cursor_entered_proximity
+        )
 
         # System tray integration
         self._tray = DoodleTrayIcon(parent=self._window)
@@ -106,6 +109,7 @@ class DoodleApplication:
         self._qapp.aboutToQuit.connect(self._lifecycle.shutdown)
 
         # Register shutdown cleanup hooks in order
+        self._lifecycle.add_shutdown_hook(self._window.proximity_monitor.stop)
         self._lifecycle.add_shutdown_hook(self._behavior_engine.cleanup)
         self._lifecycle.add_shutdown_hook(self._menu.cleanup)
         self._lifecycle.add_shutdown_hook(self._tray.cleanup)
@@ -134,6 +138,11 @@ class DoodleApplication:
 
     @property
     def window(self) -> CompanionWindow:
+        """Return the root companion window instance."""
+        return self._window
+
+    @property
+    def companion_window(self) -> CompanionWindow:
         """Return the root companion window instance."""
         return self._window
 
@@ -206,7 +215,10 @@ class DoodleApplication:
 
     def quit(self) -> None:
         """Perform clean shutdown and terminate the Qt application event loop."""
+        if not self._lifecycle.is_running:
+            self._lifecycle.startup()
         self._lifecycle.shutdown()
+        self._window.close()
         self._qapp.quit()
 
     def _save_state(self) -> None:

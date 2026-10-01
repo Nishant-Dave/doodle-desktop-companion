@@ -12,10 +12,12 @@ from doodle.behavior.rules import (
     ACTION_CHANGE_STATE,
     ACTION_NOOP,
     ACTION_PLAY_ANIMATION,
+    DEFAULT_PROXIMITY_COOLDOWN_S,
     DEFAULT_QUIET_PERIOD_MS,
     DEFAULT_QUIET_PERIOD_S,
     EVENT_ANIMATION_FINISHED,
     EVENT_CHARACTER_CLICKED,
+    EVENT_CURSOR_ENTERED_PROXIMITY,
     EVENT_DRAG_RELEASED,
     EVENT_DRAG_STARTED,
     EVENT_DRAGGING,
@@ -266,7 +268,7 @@ class BehaviorEngine(QObject):
             ):
                 self._character.set_state(CharacterState.IDLE)
             success = self._character.play_animation(action.animation_name, loop=action.loop)
-            if not success and action.animation_name in ("dizzy", "recover", "surprised"):
+            if not success and action.animation_name in ("dizzy", "recover", "surprised", "curious"):
                 self._character.set_state(CharacterState.IDLE)
 
     def trigger_idle_timeout(self) -> BehaviorAction:
@@ -368,6 +370,10 @@ class BehaviorEngine(QObject):
         """Slot invoked when application is hidden in tray."""
         self._is_visible = False
         self.pause()
+
+    def on_cursor_entered_proximity(self) -> BehaviorAction:
+        """Slot invoked when cursor crosses into window proximity zone."""
+        return self.handle_event(EVENT_CURSOR_ENTERED_PROXIMITY)
 
     def cleanup(self) -> None:
         """Clean up behavior engine resources during application shutdown."""

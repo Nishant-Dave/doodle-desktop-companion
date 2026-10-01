@@ -10,12 +10,14 @@ from typing import TYPE_CHECKING, Optional
 from PySide6.QtCore import QPoint, QRect, Qt, Signal
 from PySide6.QtGui import (
     QColor,
+    QHideEvent,
     QMouseEvent,
     QPainter,
     QPaintEvent,
     QPen,
     QPixmap,
     QResizeEvent,
+    QShowEvent,
 )
 from PySide6.QtWidgets import QWidget
 
@@ -23,6 +25,11 @@ from doodle.desktop.positioning import (
     PositionManager,
     get_usable_screen_bounds,
 )
+from doodle.desktop.proximity import (
+    DEFAULT_PROXIMITY_MARGIN,
+    CursorProximityMonitor,
+)
+
 
 if TYPE_CHECKING:
     from doodle.character.character import Character
@@ -45,6 +52,9 @@ class CompanionWindow(QWidget):
     character_clicked = Signal()
     CHARACTER_CLICKED = character_clicked
 
+    # Signal emitted when mouse cursor crosses into the proximity zone
+    cursor_entered_proximity = Signal()
+
     # Signals emitted when drag operation begins, moves, and concludes
     drag_started = Signal()
     drag_released = Signal()
@@ -56,6 +66,7 @@ class CompanionWindow(QWidget):
         character: Optional[Character] = None,
         position_manager: Optional[PositionManager] = None,
         settings_manager: Optional[SettingsManager] = None,
+        proximity_margin: int = DEFAULT_PROXIMITY_MARGIN,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -66,6 +77,7 @@ class CompanionWindow(QWidget):
         self._drag_start_pos: QPoint = QPoint(0, 0)
         self._drag_occurred: bool = False
         self._drag_threshold: int = DEFAULT_DRAG_THRESHOLD
+        self._proximity_margin: int = max(0, proximity_margin)
 
         self.setWindowTitle("Doodle")
         self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
@@ -90,9 +102,33 @@ class CompanionWindow(QWidget):
                 settings_manager=settings_manager,
             )
 
+        # Initialize proximity monitor and wire forward signal
+        self._proximity_monitor = CursorProximityMonitor(
+            self,
+            margin=self._proximity_margin,
+            parent=self,
+        )
+        self._proximity_monitor.proximity_entered.connect(self.cursor_entered_proximity.emit)
+
         # Restore persisted position or default to bottom-right
         self.restore_or_default_position()
         self.set_character(character)
+
+    @property
+    def proximity_monitor(self) -> CursorProximityMonitor:
+        """Return the cursor proximity monitor attached to this window."""
+        return self._proximity_monitor
+
+    @property
+    def proximity_margin(self) -> int:
+        """Return the proximity detection margin in pixels."""
+        return self._proximity_monitor.margin
+
+    @proximity_margin.setter
+    def proximity_margin(self, value: int) -> None:
+        self._proximity_margin = max(0, int(value))
+        self._proximity_monitor.margin = self._proximity_margin
+
 
     @property
     def character(self) -> Optional[Character]:
@@ -157,6 +193,18 @@ class CompanionWindow(QWidget):
         self._position_manager.set_position(default_pos)
         self.move(default_pos)
 
+    def showEvent(self, event: QShowEvent) -> None:
+        """Handle window shown: start cursor proximity monitor."""
+        super().showEvent(event)
+        if hasattr(self, "_proximity_monitor") and self._proximity_monitor is not None:
+            self._proximity_monitor.start()
+
+    def hideEvent(self, event: QHideEvent) -> None:
+        """Handle window hidden: stop cursor proximity monitor."""
+        super().hideEvent(event)
+        if hasattr(self, "_proximity_monitor") and self._proximity_monitor is not None:
+            self._proximity_monitor.stop()
+
     def resizeEvent(self, event: QResizeEvent) -> None:
         """Synchronize window size updates with the position manager."""
         super().resizeEvent(event)
@@ -170,6 +218,8 @@ class CompanionWindow(QWidget):
             self._drag_start_pos = event.globalPosition().toPoint()
             # Offset between the global pointer location and window top-left
             self._drag_start_offset = event.globalPosition().toPoint() - self.pos()
+            if hasattr(self, "_proximity_monitor") and self._proximity_monitor is not None:
+                self._proximity_monitor.sync_inside_state()
             event.accept()
             return
         super().mousePressEvent(event)
@@ -201,6 +251,8 @@ class CompanionWindow(QWidget):
         """Handle mouse release to conclude dragging or emit click interaction."""
         if event.button() == Qt.MouseButton.LeftButton and self._is_dragging:
             self._is_dragging = False
+            if hasattr(self, "_proximity_monitor") and self._proximity_monitor is not None:
+                self._proximity_monitor.sync_inside_state()
             if self._drag_occurred:
                 self.drag_released.emit()
                 clamped_pos = self._position_manager.set_position(self.pos())

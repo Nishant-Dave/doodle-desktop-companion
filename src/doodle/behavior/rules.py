@@ -25,6 +25,7 @@ EVENT_DRAG_STARTED: str = "DRAG_STARTED"
 EVENT_DRAGGING: str = "DRAGGING"
 EVENT_DRAG_RELEASED: str = "DRAG_RELEASED"
 EVENT_DRAG_FINISHED: str = "DRAG_RELEASED"
+EVENT_CURSOR_ENTERED_PROXIMITY: str = "CURSOR_ENTERED_PROXIMITY"
 
 # Action type representations
 ACTION_CHANGE_STATE: str = "CHANGE_STATE"
@@ -42,6 +43,7 @@ DEFAULT_IDLE_CYCLE: Sequence[CharacterState] = (
 DEFAULT_QUIET_PERIOD_S: float = 15.0
 DEFAULT_QUIET_PERIOD_MS: int = 15000
 DEFAULT_BEHAVIOR_COOLDOWN_S: float = 60.0
+DEFAULT_PROXIMITY_COOLDOWN_S: float = 30.0
 
 SHORT_IDLE_THRESHOLD_S: float = 60.0
 LONG_IDLE_THRESHOLD_S: float = 180.0
@@ -350,10 +352,15 @@ class IdleBehaviorRules:
         self,
         idle_cycle: Optional[Sequence[CharacterState]] = None,
         policy: Optional[IdleSelectionPolicy] = None,
+        proximity_cooldown_s: float = DEFAULT_PROXIMITY_COOLDOWN_S,
+        time_provider: Optional[Callable[[], float]] = None,
     ) -> None:
         self._idle_cycle = tuple(idle_cycle or DEFAULT_IDLE_CYCLE)
         self._cycle_index: int = 0
         self._policy: Optional[IdleSelectionPolicy] = policy
+        self._proximity_cooldown_s: float = max(0.0, float(proximity_cooldown_s))
+        self._time_provider: Callable[[], float] = time_provider or time.monotonic
+        self._last_proximity_time: float = float("-inf")
 
     @property
     def idle_cycle(self) -> tuple[CharacterState, ...]:
@@ -374,9 +381,37 @@ class IdleBehaviorRules:
     def policy(self, value: Optional[IdleSelectionPolicy]) -> None:
         self._policy = value
 
+    @property
+    def proximity_cooldown_s(self) -> float:
+        """Return the proximity reaction cooldown in seconds."""
+        return self._proximity_cooldown_s
+
+    @proximity_cooldown_s.setter
+    def proximity_cooldown_s(self, value: float) -> None:
+        self._proximity_cooldown_s = max(0.0, float(value))
+
+    @property
+    def last_proximity_time(self) -> float:
+        """Return the timestamp of the last executed proximity reaction."""
+        return self._last_proximity_time
+
+    @last_proximity_time.setter
+    def last_proximity_time(self, value: float) -> None:
+        self._last_proximity_time = float(value)
+
+    def is_proximity_on_cooldown(self, current_time: Optional[float] = None) -> bool:
+        """Return True if proximity reaction is currently on cooldown."""
+        now = current_time if current_time is not None else self._time_provider()
+        return (now - self._last_proximity_time) < self._proximity_cooldown_s
+
+    def reset_proximity_cooldown(self) -> None:
+        """Reset proximity cooldown timer to allow immediate reaction."""
+        self._last_proximity_time = float("-inf")
+
     def reset_cycle(self) -> None:
-        """Reset the deterministic cycle index and policy history back to initial state."""
+        """Reset the deterministic cycle index, policy history, and proximity cooldown."""
         self._cycle_index = 0
+        self._last_proximity_time = float("-inf")
         if self._policy is not None:
             self._policy.reset()
 
@@ -478,7 +513,26 @@ class IdleBehaviorRules:
 
             return BehaviorAction.noop()
 
-        # 6. All other, unhandled, or unknown events are safely ignored
+        # 6. Proximity awareness: subtle reaction when cursor crosses into proximity zone
+        if normalized_event == EVENT_CURSOR_ENTERED_PROXIMITY:
+            now = (
+                context.current_time_s
+                if context.current_time_s is not None
+                else self._time_provider()
+            )
+            if (
+                context.is_visible
+                and not context.is_dragging
+                and not context.is_menu_open
+                and context.current_state == CharacterState.IDLE
+                and context.current_animation in (None, "idle")
+                and not self.is_proximity_on_cooldown(now)
+            ):
+                self._last_proximity_time = now
+                return BehaviorAction.play_animation("curious", loop=False)
+            return BehaviorAction.noop()
+
+        # 7. All other, unhandled, or unknown events are safely ignored
         logger.debug("Unhandled or ignored behavior event: %s", normalized_event)
         return BehaviorAction.noop()
 
