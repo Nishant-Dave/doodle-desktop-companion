@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+import time
+from typing import Callable, Optional
 
 from PySide6.QtCore import QObject, QPoint, QTimer, Signal
 
@@ -11,6 +12,8 @@ from doodle.behavior.rules import (
     ACTION_CHANGE_STATE,
     ACTION_NOOP,
     ACTION_PLAY_ANIMATION,
+    DEFAULT_QUIET_PERIOD_MS,
+    DEFAULT_QUIET_PERIOD_S,
     EVENT_ANIMATION_FINISHED,
     EVENT_CHARACTER_CLICKED,
     EVENT_DRAG_RELEASED,
@@ -21,7 +24,10 @@ from doodle.behavior.rules import (
     EVENT_MENU_OPENED,
     BehaviorAction,
     BehaviorContext,
+    IdleBehavior,
     IdleBehaviorRules,
+    IdleSelectionPolicy,
+    is_behavior_available,
 )
 from doodle.character.character import Character
 from doodle.character.state import CharacterState
@@ -50,17 +56,32 @@ class BehaviorEngine(QObject):
         character: Optional[Character] = None,
         rules: Optional[IdleBehaviorRules] = None,
         idle_interval_ms: int = DEFAULT_IDLE_INTERVAL_MS,
+        quiet_period_ms: int = DEFAULT_QUIET_PERIOD_MS,
+        policy: Optional[IdleSelectionPolicy] = None,
+        time_provider: Optional[Callable[[], float]] = None,
         parent: Optional[QObject] = None,
     ) -> None:
         super().__init__(parent)
         self._character: Optional[Character] = character
         self._rules: IdleBehaviorRules = rules or IdleBehaviorRules()
         self._idle_interval_ms: int = max(1, idle_interval_ms)
+        self._quiet_period_ms: int = max(0, quiet_period_ms)
+        self._time_provider: Callable[[], float] = time_provider or time.monotonic
+
+        # Attach or sync policy with rules evaluator
+        self._policy: Optional[IdleSelectionPolicy] = policy or self._rules.policy
+        if self._policy is not None and self._rules.policy is None:
+            self._rules.policy = self._policy
 
         # Context state tracking
         self._is_visible: bool = True
         self._is_menu_open: bool = False
         self._is_dragging: bool = False
+
+        # Quiet period and idle timing tracking
+        self._start_time: float = self._time_provider()
+        self._last_interaction_time: float = float("-inf")
+        self._idle_start_time: float = self._start_time
 
         # Internal idle timer
         self._idle_timer = QTimer(self)
@@ -79,6 +100,58 @@ class BehaviorEngine(QObject):
     def attach_character(self, character: Optional[Character]) -> None:
         """Attach or update the character controlled by this engine."""
         self._character = character
+
+    @property
+    def policy(self) -> Optional[IdleSelectionPolicy]:
+        """Return the attached deterministic idle selection policy, if any."""
+        return self._policy
+
+    @policy.setter
+    def policy(self, value: Optional[IdleSelectionPolicy]) -> None:
+        self._policy = value
+        self._rules.policy = value
+
+    @property
+    def time_provider(self) -> Callable[[], float]:
+        """Return the current time provider function."""
+        return self._time_provider
+
+    @time_provider.setter
+    def time_provider(self, provider: Callable[[], float]) -> None:
+        self._time_provider = provider
+        now = self._time_provider()
+        self._start_time = now
+        self._idle_start_time = now
+
+
+    @property
+    def quiet_period_ms(self) -> int:
+        """Return the quiet period duration in milliseconds."""
+        return self._quiet_period_ms
+
+    @quiet_period_ms.setter
+    def quiet_period_ms(self, value: int) -> None:
+        self._quiet_period_ms = max(0, value)
+
+    @property
+    def quiet_period_s(self) -> float:
+        """Return the quiet period duration in seconds."""
+        return self._quiet_period_ms / 1000.0
+
+    @property
+    def is_in_quiet_period(self) -> bool:
+        """Return True if currently within the quiet period following user interaction."""
+        if self._last_interaction_time == float("-inf"):
+            return False
+        elapsed_ms = (self._time_provider() - self._last_interaction_time) * 1000.0
+        return elapsed_ms < self._quiet_period_ms
+
+
+    def record_user_interaction(self, timestamp: Optional[float] = None) -> None:
+        """Record meaningful user interaction and initiate quiet period."""
+        now = timestamp if timestamp is not None else self._time_provider()
+        self._last_interaction_time = now
+        self._idle_start_time = now
 
     @property
     def idle_interval_ms(self) -> int:
@@ -126,18 +199,38 @@ class BehaviorEngine(QObject):
 
     def get_current_context(self) -> BehaviorContext:
         """Assemble current environmental context for rule evaluation."""
+        now = self._time_provider()
         current_state = (
             self._character.state if self._character is not None else CharacterState.IDLE
         )
         current_animation = (
             self._character.current_animation_name if self._character is not None else None
         )
+        idle_duration_s = max(0.0, now - self._idle_start_time)
+        time_since_interaction_s = max(0.0, now - self._last_interaction_time)
+        in_quiet = (time_since_interaction_s * 1000.0) < self._quiet_period_ms
+
+        available_behaviors = None
+        if self._character is not None and hasattr(self._character, "animation_controller"):
+            anims = list(self._character.animation_controller._animations.keys())
+            available_behaviors = [
+                b for b in IdleBehavior
+                if is_behavior_available(b, anims)
+            ]
+
         return BehaviorContext(
             current_state=current_state,
             is_visible=self._is_visible,
             is_menu_open=self._is_menu_open,
             is_dragging=self._is_dragging,
             current_animation=current_animation,
+            idle_duration_s=idle_duration_s,
+            time_since_last_interaction_s=time_since_interaction_s,
+            quiet_period_s=self._quiet_period_ms / 1000.0,
+            is_in_quiet_period=in_quiet,
+            current_time_s=now,
+            available_behaviors=available_behaviors,
+            policy=self._policy,
         )
 
     def handle_event(self, event: str, **kwargs) -> BehaviorAction:
@@ -167,6 +260,11 @@ class BehaviorEngine(QObject):
         if action.action_type == ACTION_CHANGE_STATE and action.state is not None:
             self._character.set_state(action.state, loop=action.loop)
         elif action.action_type == ACTION_PLAY_ANIMATION and action.animation_name is not None:
+            # If character was in a non-idle state (e.g. stretch/sleep), reset state to IDLE
+            if self._character.state != CharacterState.IDLE and action.animation_name in (
+                "surprised", "dizzy", "curious", "playful"
+            ):
+                self._character.set_state(CharacterState.IDLE)
             success = self._character.play_animation(action.animation_name, loop=action.loop)
             if not success and action.animation_name in ("dizzy", "recover", "surprised"):
                 self._character.set_state(CharacterState.IDLE)
@@ -207,6 +305,7 @@ class BehaviorEngine(QObject):
 
     def on_character_clicked(self) -> None:
         """Slot invoked when companion character is clicked."""
+        self.record_user_interaction()
         self.stop_idle_timer()
         self.handle_event(EVENT_CHARACTER_CLICKED)
 
@@ -216,12 +315,14 @@ class BehaviorEngine(QObject):
 
     def on_menu_opened(self) -> None:
         """Slot invoked when interaction menu opens."""
+        self.record_user_interaction()
         self._is_menu_open = True
         self.stop_idle_timer()
         self.handle_event(EVENT_MENU_OPENED)
 
     def on_menu_dismissed(self) -> None:
         """Slot invoked when interaction menu is dismissed."""
+        self.record_user_interaction()
         self._is_menu_open = False
         self.handle_event(EVENT_MENU_DISMISSED)
         self.start_idle_timer()
@@ -231,20 +332,24 @@ class BehaviorEngine(QObject):
         if self._is_dragging:
             self.on_dragging(pos)
         else:
+            self.record_user_interaction()
             self.reset_idle_timer()
 
     def on_drag_started(self) -> None:
         """Slot invoked when drag begins."""
+        self.record_user_interaction()
         self._is_dragging = True
         self.stop_idle_timer()
         self.handle_event(EVENT_DRAG_STARTED)
 
     def on_dragging(self, pos: Optional[QPoint] = None) -> None:
         """Slot invoked during active dragging."""
+        self.record_user_interaction()
         self.handle_event(EVENT_DRAGGING, pos=pos)
 
     def on_drag_released(self) -> None:
         """Slot invoked when drag concludes."""
+        self.record_user_interaction()
         self._is_dragging = False
         self.handle_event(EVENT_DRAG_RELEASED)
         self.reset_idle_timer()
@@ -254,7 +359,10 @@ class BehaviorEngine(QObject):
     def on_show_requested(self) -> None:
         """Slot invoked when application is shown from tray."""
         self._is_visible = True
+        if self._policy is not None:
+            self.record_user_interaction()
         self.resume()
+
 
     def on_hide_requested(self) -> None:
         """Slot invoked when application is hidden in tray."""
@@ -264,3 +372,4 @@ class BehaviorEngine(QObject):
     def cleanup(self) -> None:
         """Clean up behavior engine resources during application shutdown."""
         self.stop_idle_timer()
+

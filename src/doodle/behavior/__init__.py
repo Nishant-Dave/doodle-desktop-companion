@@ -1,8 +1,11 @@
 """Behavior layer for Doodle desktop companion."""
 
-from doodle.behavior.engine import BehaviorEngine
+from doodle.behavior.engine import DEFAULT_IDLE_INTERVAL_MS, BehaviorEngine
 from doodle.behavior.rules import (
+    DEFAULT_BEHAVIOR_COOLDOWN_S,
     DEFAULT_IDLE_CYCLE,
+    DEFAULT_QUIET_PERIOD_MS,
+    DEFAULT_QUIET_PERIOD_S,
     EVENT_ANIMATION_FINISHED,
     EVENT_CHARACTER_CLICKED,
     EVENT_DRAG_FINISHED,
@@ -14,14 +17,23 @@ from doodle.behavior.rules import (
     EVENT_MENU_OPENED,
     BehaviorAction,
     BehaviorContext,
+    IdleBehavior,
     IdleBehaviorRules,
+    IdleSelectionPolicy,
+    action_for_idle_behavior,
+    get_available_behaviors,
+    is_behavior_available,
 )
 
 __all__ = [
     "BehaviorAction",
     "BehaviorContext",
     "BehaviorEngine",
+    "DEFAULT_BEHAVIOR_COOLDOWN_S",
     "DEFAULT_IDLE_CYCLE",
+    "DEFAULT_IDLE_INTERVAL_MS",
+    "DEFAULT_QUIET_PERIOD_MS",
+    "DEFAULT_QUIET_PERIOD_S",
     "EVENT_ANIMATION_FINISHED",
     "EVENT_CHARACTER_CLICKED",
     "EVENT_DRAG_FINISHED",
@@ -31,5 +43,11 @@ __all__ = [
     "EVENT_IDLE_TIMEOUT",
     "EVENT_MENU_DISMISSED",
     "EVENT_MENU_OPENED",
+    "IdleBehavior",
     "IdleBehaviorRules",
+    "IdleSelectionPolicy",
+    "action_for_idle_behavior",
+    "get_available_behaviors",
+    "is_behavior_available",
 ]
+

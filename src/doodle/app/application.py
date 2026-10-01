@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication
 
 from doodle.app.lifecycle import AppLifecycle
 from doodle.behavior.engine import BehaviorEngine
+from doodle.behavior.rules import IdleSelectionPolicy
 from doodle.character.character import Character
 from doodle.character.state import CharacterState
 from doodle.desktop.companion_window import CompanionWindow
@@ -33,6 +34,8 @@ class DoodleApplication:
         argv: Sequence[str] | None = None,
         settings_manager: Optional[SettingsManager] = None,
         behavior_engine: Optional[BehaviorEngine] = None,
+        selection_policy: Optional[IdleSelectionPolicy] = None,
+        use_rich_idle: bool = False,
     ) -> None:
         self._argv = list(argv) if argv is not None else sys.argv
 
@@ -63,9 +66,15 @@ class DoodleApplication:
             self._behavior_engine = behavior_engine
             if self._behavior_engine.character is None:
                 self._behavior_engine.attach_character(self._character)
+            if selection_policy is not None and self._behavior_engine.policy is None:
+                self._behavior_engine.policy = selection_policy
         else:
+            policy = selection_policy
+            if policy is None and use_rich_idle:
+                policy = IdleSelectionPolicy()
             self._behavior_engine = BehaviorEngine(
                 character=self._character,
+                policy=policy,
                 parent=self._window,
             )
 
@@ -73,6 +82,7 @@ class DoodleApplication:
         self._character.animation_finished.connect(
             self._behavior_engine.on_animation_finished
         )
+
 
         # Interaction menu (single managed instance to prevent duplicates)
         self._menu: InteractionMenu = InteractionMenu(parent=self._window)

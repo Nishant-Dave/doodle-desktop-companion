@@ -10,8 +10,9 @@ from doodle.app.application import DoodleApplication
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Instantiate and run the Doodle application."""
-    app = DoodleApplication(argv)
+    app = DoodleApplication(argv, use_rich_idle=True)
     return app.run()
+
 
 
 if __name__ == "__main__":
