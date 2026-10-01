@@ -13,6 +13,7 @@ from doodle.app.lifecycle import AppLifecycle
 from doodle.behavior.engine import BehaviorEngine
 from doodle.behavior.rules import IdleSelectionPolicy
 from doodle.character.character import Character
+from doodle.character.mood import Mood
 from doodle.character.state import CharacterState
 from doodle.desktop.companion_window import CompanionWindow
 from doodle.desktop.tray import DoodleTrayIcon
@@ -160,6 +161,11 @@ class DoodleApplication:
     def behavior_engine(self) -> BehaviorEngine:
         """Return the managed behavior engine component."""
         return self._behavior_engine
+
+    @property
+    def mood(self) -> Mood:
+        """Return the current companion mood."""
+        return self._behavior_engine.mood
 
     def show_companion(self) -> None:
         """Make the companion window visible and bring it to front."""

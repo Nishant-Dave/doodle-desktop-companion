@@ -32,6 +32,7 @@ from doodle.behavior.rules import (
     is_behavior_available,
 )
 from doodle.character.character import Character
+from doodle.character.mood import Mood, MoodManager
 from doodle.character.state import CharacterState
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,7 @@ class BehaviorEngine(QObject):
         idle_interval_ms: int = DEFAULT_IDLE_INTERVAL_MS,
         quiet_period_ms: int = DEFAULT_QUIET_PERIOD_MS,
         policy: Optional[IdleSelectionPolicy] = None,
+        mood_manager: Optional[MoodManager] = None,
         time_provider: Optional[Callable[[], float]] = None,
         parent: Optional[QObject] = None,
     ) -> None:
@@ -69,6 +71,13 @@ class BehaviorEngine(QObject):
         self._idle_interval_ms: int = max(1, idle_interval_ms)
         self._quiet_period_ms: int = max(0, quiet_period_ms)
         self._time_provider: Callable[[], float] = time_provider or time.monotonic
+
+        # Initialize mood manager and sync initial character mood
+        self._mood_manager: MoodManager = (
+            mood_manager or MoodManager(time_provider=self._time_provider)
+        )
+        if self._character is not None:
+            self._character.set_mood(self._mood_manager.raw_mood)
 
         # Attach or sync policy with rules evaluator
         self._policy: Optional[IdleSelectionPolicy] = policy or self._rules.policy
@@ -90,6 +99,18 @@ class BehaviorEngine(QObject):
         self._idle_timer.timeout.connect(self.on_idle_timeout)
 
     @property
+    def mood_manager(self) -> MoodManager:
+        """Return the managed mood state tracker."""
+        return self._mood_manager
+
+    @property
+    def mood(self) -> Mood:
+        """Return the current evaluated companion mood."""
+        now = self._time_provider()
+        idle_duration_s = max(0.0, now - self._idle_start_time)
+        return self._mood_manager.get_mood(now, idle_duration_s=idle_duration_s)
+
+    @property
     def rules(self) -> IdleBehaviorRules:
         """Return the active rule set evaluator."""
         return self._rules
@@ -102,6 +123,8 @@ class BehaviorEngine(QObject):
     def attach_character(self, character: Optional[Character]) -> None:
         """Attach or update the character controlled by this engine."""
         self._character = character
+        if self._character is not None:
+            self._character.set_mood(self.mood)
 
     @property
     def policy(self) -> Optional[IdleSelectionPolicy]:
@@ -121,6 +144,7 @@ class BehaviorEngine(QObject):
     @time_provider.setter
     def time_provider(self, provider: Callable[[], float]) -> None:
         self._time_provider = provider
+        self._mood_manager.time_provider = provider
         now = self._time_provider()
         self._start_time = now
         self._idle_start_time = now
@@ -211,6 +235,9 @@ class BehaviorEngine(QObject):
         idle_duration_s = max(0.0, now - self._idle_start_time)
         time_since_interaction_s = max(0.0, now - self._last_interaction_time)
         in_quiet = (time_since_interaction_s * 1000.0) < self._quiet_period_ms
+        current_mood = self._mood_manager.get_mood(now, idle_duration_s=idle_duration_s)
+        if self._character is not None:
+            self._character.set_mood(current_mood)
 
         available_behaviors = None
         if self._character is not None and hasattr(self._character, "animation_controller"):
@@ -233,10 +260,25 @@ class BehaviorEngine(QObject):
             current_time_s=now,
             available_behaviors=available_behaviors,
             policy=self._policy,
+            mood=current_mood,
         )
 
     def handle_event(self, event: str, **kwargs) -> BehaviorAction:
         """Evaluate an incoming event against deterministic rules and execute the action."""
+        now = self._time_provider()
+        idle_duration_s = max(0.0, now - self._idle_start_time)
+
+        # 1. Update companion mood for the incoming event
+        updated_mood = self._mood_manager.update_for_event(
+            event,
+            current_time=now,
+            idle_duration_s=idle_duration_s,
+            **kwargs,
+        )
+        if self._character is not None:
+            self._character.set_mood(updated_mood)
+
+        # 2. Assemble context and evaluate rules
         context = self.get_current_context()
         action = self._rules.evaluate(event, context, **kwargs)
 

@@ -10,6 +10,7 @@ from PySide6.QtGui import QPixmap
 
 from doodle.character.animation import Animation, AnimationController
 from doodle.character.assets import load_animation_frames, load_asset
+from doodle.character.mood import Mood
 from doodle.character.state import CharacterState
 
 KNOWN_ANIMATION_NAMES = (
@@ -44,6 +45,7 @@ class Character(QObject):
         super().__init__(parent)
         self._name: str = name
         self._state: CharacterState = initial_state
+        self._mood: Mood = Mood.NEUTRAL
         self._assets_dir: Optional[Path] = assets_dir
 
         # Initialize animation controller and forward its signals
@@ -65,6 +67,15 @@ class Character(QObject):
     def state(self) -> CharacterState:
         """Return the current character state."""
         return self._state
+
+    @property
+    def mood(self) -> Mood:
+        """Return the current companion mood."""
+        return self._mood
+
+    def set_mood(self, mood: Mood) -> None:
+        """Update the character's current mood."""
+        self._mood = mood
 
     @property
     def animation_controller(self) -> AnimationController:

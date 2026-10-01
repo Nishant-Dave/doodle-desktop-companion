@@ -3,6 +3,12 @@
 from doodle.character.animation import Animation, AnimationController
 from doodle.character.assets import load_animation_frames, load_asset, resolve_asset_path
 from doodle.character.character import Character
+from doodle.character.mood import (
+    DEFAULT_MOOD_DECAY_S,
+    DEFAULT_SLEEPY_THRESHOLD_S,
+    Mood,
+    MoodManager,
+)
 from doodle.character.state import CharacterState
 
 __all__ = [
@@ -10,6 +16,10 @@ __all__ = [
     "AnimationController",
     "Character",
     "CharacterState",
+    "DEFAULT_MOOD_DECAY_S",
+    "DEFAULT_SLEEPY_THRESHOLD_S",
+    "Mood",
+    "MoodManager",
     "load_animation_frames",
     "load_asset",
     "resolve_asset_path",

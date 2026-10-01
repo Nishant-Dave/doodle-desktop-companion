@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, Optional, Sequence, Set, Union
 
+from doodle.character.mood import Mood
 from doodle.character.state import CharacterState
 
 logger = logging.getLogger(__name__)
@@ -104,6 +105,28 @@ TIER_VERY_LONG_IDLE_BEHAVIORS: tuple[IdleBehavior, ...] = (
     IdleBehavior.WAKE_UP,
 )
 
+# Preferred idle behaviors for each companion mood
+MOOD_PREFERRED_BEHAVIORS: dict[Mood, tuple[IdleBehavior, ...]] = {
+    Mood.NEUTRAL: (),
+    Mood.CURIOUS: (
+        IdleBehavior.CURIOUS,
+        IdleBehavior.LOOK_AROUND,
+    ),
+    Mood.PLAYFUL: (
+        IdleBehavior.PLAYFUL_DANCE,
+        IdleBehavior.SELF_AMUSEMENT,
+    ),
+    Mood.HAPPY: (
+        IdleBehavior.STRETCH,
+        IdleBehavior.PLAYFUL_DANCE,
+        IdleBehavior.CURIOUS,
+    ),
+    Mood.SLEEPY: (
+        IdleBehavior.NAP,
+        IdleBehavior.YAWN,
+    ),
+}
+
 
 def is_behavior_available(
     behavior: Union[IdleBehavior, str],
@@ -180,6 +203,7 @@ class IdleSelectionPolicy:
             "long": 0,
             "very_long": 0,
         }
+        self._mood_rotation_indices: dict[Mood, int] = {m: 0 for m in Mood}
 
     @property
     def cooldown_s(self) -> float:
@@ -201,6 +225,7 @@ class IdleSelectionPolicy:
         self._last_performed_at.clear()
         self._most_recent_behavior = None
         self._rotation_indices = {"short": 0, "long": 0, "very_long": 0}
+        self._mood_rotation_indices = {m: 0 for m in Mood}
 
     def is_available(self, behavior: IdleBehavior) -> bool:
         """Check if behavior has an animation asset available."""
@@ -244,27 +269,49 @@ class IdleSelectionPolicy:
         idle_time_s: float = 0.0,
         current_time: Optional[float] = None,
         available_behaviors: Optional[Sequence[IdleBehavior]] = None,
+        mood: Optional[Mood] = None,
     ) -> Optional[IdleBehavior]:
         """Deterministically select the next appropriate idle behavior.
 
         Evaluation pipeline:
-        1. Candidates for current idle duration tier.
-        2. Filter out unavailable behaviors.
-        3. Filter out behaviors on cooldown or equal to most_recent_behavior.
-        4. Select next candidate deterministically via per-tier rotation index.
+        1. If companion has an active non-neutral mood with preferred behaviors,
+           evaluate mood candidates first.
+        2. Filter out unavailable behaviors and behaviors on cooldown.
+        3. Deterministically rotate through eligible candidates.
+        4. Fall back to normal tier candidate selection if mood has no eligible behaviors.
         """
         now = current_time if current_time is not None else self._time_provider()
         tier_key = self.get_tier_key(idle_time_s)
         tier_candidates = self.get_tier_candidates(idle_time_s)
 
-        # Filter unavailable behaviors
+        # 1. Evaluate mood-preferred candidates if mood is active and non-neutral
+        if mood is not None and mood in MOOD_PREFERRED_BEHAVIORS and MOOD_PREFERRED_BEHAVIORS[mood]:
+            mood_candidates = MOOD_PREFERRED_BEHAVIORS[mood]
+            if available_behaviors is not None:
+                avail_set = set(available_behaviors)
+                mood_filtered = [b for b in mood_candidates if b in avail_set]
+            else:
+                mood_filtered = [b for b in mood_candidates if self.is_available(b)]
+
+            eligible_mood = [
+                b for b in mood_filtered
+                if b != self._most_recent_behavior and not self.is_on_cooldown(b, now)
+            ]
+
+            if eligible_mood:
+                rot_index = self._mood_rotation_indices.get(mood, 0)
+                selected = eligible_mood[rot_index % len(eligible_mood)]
+                self._mood_rotation_indices[mood] = rot_index + 1
+                self.record_behavior(selected, now)
+                return selected
+
+        # 2. Standard tier candidate selection (fallback or neutral mood)
         if available_behaviors is not None:
             available_set = set(available_behaviors)
             candidates = [b for b in tier_candidates if b in available_set]
         else:
             candidates = [b for b in tier_candidates if self.is_available(b)]
 
-        # Filter behaviors on cooldown or recently used
         eligible: list[IdleBehavior] = []
         for b in candidates:
             if b == self._most_recent_behavior:
@@ -343,6 +390,7 @@ class BehaviorContext:
     current_time_s: Optional[float] = None
     available_behaviors: Optional[Sequence[IdleBehavior]] = None
     policy: Optional[IdleSelectionPolicy] = None
+    mood: Mood = Mood.NEUTRAL
 
 
 class IdleBehaviorRules:
@@ -499,6 +547,7 @@ class IdleBehaviorRules:
                         idle_time_s=context.idle_duration_s,
                         current_time=context.current_time_s,
                         available_behaviors=context.available_behaviors,
+                        mood=context.mood,
                     )
                     if selected is not None:
                         return action_for_idle_behavior(selected)
