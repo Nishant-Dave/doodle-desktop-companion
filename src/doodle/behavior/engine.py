@@ -13,6 +13,9 @@ from doodle.behavior.rules import (
     ACTION_PLAY_ANIMATION,
     EVENT_ANIMATION_FINISHED,
     EVENT_CHARACTER_CLICKED,
+    EVENT_DRAG_RELEASED,
+    EVENT_DRAG_STARTED,
+    EVENT_DRAGGING,
     EVENT_IDLE_TIMEOUT,
     EVENT_MENU_DISMISSED,
     EVENT_MENU_OPENED,
@@ -126,11 +129,15 @@ class BehaviorEngine(QObject):
         current_state = (
             self._character.state if self._character is not None else CharacterState.IDLE
         )
+        current_animation = (
+            self._character.current_animation_name if self._character is not None else None
+        )
         return BehaviorContext(
             current_state=current_state,
             is_visible=self._is_visible,
             is_menu_open=self._is_menu_open,
             is_dragging=self._is_dragging,
+            current_animation=current_animation,
         )
 
     def handle_event(self, event: str, **kwargs) -> BehaviorAction:
@@ -160,7 +167,9 @@ class BehaviorEngine(QObject):
         if action.action_type == ACTION_CHANGE_STATE and action.state is not None:
             self._character.set_state(action.state, loop=action.loop)
         elif action.action_type == ACTION_PLAY_ANIMATION and action.animation_name is not None:
-            self._character.play_animation(action.animation_name, loop=action.loop)
+            success = self._character.play_animation(action.animation_name, loop=action.loop)
+            if not success and action.animation_name in ("dizzy", "recover", "surprised"):
+                self._character.set_state(CharacterState.IDLE)
 
     def trigger_idle_timeout(self) -> BehaviorAction:
         """Manually trigger an idle timeout event (useful for tests and timers)."""
@@ -217,19 +226,30 @@ class BehaviorEngine(QObject):
         self.handle_event(EVENT_MENU_DISMISSED)
         self.start_idle_timer()
 
-    def on_character_moved(self, _pos: Optional[QPoint] = None) -> None:
-        """Slot invoked when character moves during drag."""
-        self.reset_idle_timer()
+    def on_character_moved(self, pos: Optional[QPoint] = None) -> None:
+        """Slot invoked when character moves during drag or positioning."""
+        if self._is_dragging:
+            self.on_dragging(pos)
+        else:
+            self.reset_idle_timer()
 
     def on_drag_started(self) -> None:
         """Slot invoked when drag begins."""
         self._is_dragging = True
         self.stop_idle_timer()
+        self.handle_event(EVENT_DRAG_STARTED)
 
-    def on_drag_finished(self) -> None:
-        """Slot invoked when drag ends."""
+    def on_dragging(self, pos: Optional[QPoint] = None) -> None:
+        """Slot invoked during active dragging."""
+        self.handle_event(EVENT_DRAGGING, pos=pos)
+
+    def on_drag_released(self) -> None:
+        """Slot invoked when drag concludes."""
         self._is_dragging = False
+        self.handle_event(EVENT_DRAG_RELEASED)
         self.reset_idle_timer()
+
+    on_drag_finished = on_drag_released
 
     def on_show_requested(self) -> None:
         """Slot invoked when application is shown from tray."""

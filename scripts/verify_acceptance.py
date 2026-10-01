@@ -48,6 +48,12 @@ def run_acceptance_checklist() -> dict[str, bool]:
     # 5. Always-on-top works as intended
     results["Always-on-top works as intended"] = bool(flags & Qt.WindowType.WindowStaysOnTopHint)
 
+    # 9. Idle animation plays (checked at initial launch)
+    results["Idle animation plays"] = (
+        app.character.current_animation_name == "idle"
+        and app.character.animation_controller.is_playing
+    )
+
     # 6. Panda can be dragged & 7. Panda stays within usable screen bounds
     win = app.window
     bounds = win.position_manager.get_usable_screen_bounds()
@@ -87,15 +93,13 @@ def run_acceptance_checklist() -> dict[str, bool]:
         )
     )
 
+    # Complete drag release reaction (dizzy -> recover -> idle)
+    app.character.animation_finished.emit("dizzy")
+    app.character.animation_finished.emit("recover")
+
     # 8. Position persists after restart
     saved_pos = sm.load_window_position()
     results["Position persists after restart"] = saved_pos == win.pos()
-
-    # 9. Idle animation plays
-    results["Idle animation plays"] = (
-        app.character.current_animation_name == "idle"
-        and app.character.animation_controller.is_playing
-    )
 
     # 10. Other implemented animations can be triggered
     stretch_ok = app.character.play_animation("stretch")

@@ -19,6 +19,10 @@ EVENT_MENU_DISMISSED: str = "MENU_DISMISSED"
 EVENT_CHARACTER_MOVED: str = "CHARACTER_MOVED"
 EVENT_SHOW_REQUESTED: str = "SHOW_REQUESTED"
 EVENT_HIDE_REQUESTED: str = "HIDE_REQUESTED"
+EVENT_DRAG_STARTED: str = "DRAG_STARTED"
+EVENT_DRAGGING: str = "DRAGGING"
+EVENT_DRAG_RELEASED: str = "DRAG_RELEASED"
+EVENT_DRAG_FINISHED: str = "DRAG_RELEASED"
 
 # Action type representations
 ACTION_CHANGE_STATE: str = "CHANGE_STATE"
@@ -83,6 +87,7 @@ class BehaviorContext:
     is_visible: bool = True
     is_menu_open: bool = False
     is_dragging: bool = False
+    current_animation: Optional[str] = None
 
 
 class IdleBehaviorRules:
@@ -126,14 +131,27 @@ class IdleBehaviorRules:
         if normalized_event == EVENT_CHARACTER_CLICKED:
             return BehaviorAction.change_state(CharacterState.ATTENTION, loop=True)
 
-        # 2. Menu dismissed returns to IDLE if character was in ATTENTION
-        if normalized_event == EVENT_MENU_DISMISSED:
-            if context.current_state == CharacterState.ATTENTION:
-                return BehaviorAction.change_state(CharacterState.IDLE, loop=True)
+        # 2. Drag interaction lifecycle:
+        # Drag started: enter surprised/held pose, interrupt idle behavior
+        if normalized_event == EVENT_DRAG_STARTED:
+            return BehaviorAction.play_animation("surprised", loop=True)
+
+        # During dragging: remain visually stable while following pointer
+        if normalized_event == EVENT_DRAGGING:
             return BehaviorAction.noop()
 
-        # 3. Animation finished returns temporary idle states back to IDLE
+        # Drag released: perform short deterministic reaction (dizzy) before recovering to IDLE
+        if normalized_event in (EVENT_DRAG_RELEASED, "DRAG_FINISHED"):
+            return BehaviorAction.play_animation("dizzy", loop=False)
+
+        # 3. Animation finished transitions:
         if normalized_event == EVENT_ANIMATION_FINISHED:
+            anim_name = kwargs.get("animation_name")
+            if anim_name == "dizzy":
+                return BehaviorAction.play_animation("recover", loop=False)
+            if anim_name in ("recover", "curious", "playful"):
+                return BehaviorAction.change_state(CharacterState.IDLE, loop=True)
+
             if context.current_state in (
                 CharacterState.STRETCH,
                 CharacterState.SIT,
@@ -142,14 +160,22 @@ class IdleBehaviorRules:
                 return BehaviorAction.change_state(CharacterState.IDLE, loop=True)
             return BehaviorAction.noop()
 
-        # 4. Idle timeout triggers next deterministic idle action
+        # 4. Menu dismissed returns to IDLE if character was in ATTENTION
+        if normalized_event == EVENT_MENU_DISMISSED:
+            if context.current_state == CharacterState.ATTENTION:
+                return BehaviorAction.change_state(CharacterState.IDLE, loop=True)
+            return BehaviorAction.noop()
+
+        # 5. Idle timeout triggers next deterministic idle action
         if normalized_event == EVENT_IDLE_TIMEOUT:
-            # Idle action is only valid when character is IDLE, visible, not dragging, and not in menu
+            # Idle action is only valid when character is IDLE, visible, not dragging, not in menu,
+            # and not playing a transient expressive animation
             if (
                 context.is_visible
                 and not context.is_dragging
                 and not context.is_menu_open
                 and context.current_state == CharacterState.IDLE
+                and context.current_animation in (None, "idle")
             ):
                 if not self._idle_cycle:
                     return BehaviorAction.noop()
@@ -159,6 +185,6 @@ class IdleBehaviorRules:
                 return BehaviorAction.change_state(next_state, loop=False)
             return BehaviorAction.noop()
 
-        # 5. All other, unhandled, or unknown events are safely ignored
+        # 6. All other, unhandled, or unknown events are safely ignored
         logger.debug("Unhandled or ignored behavior event: %s", normalized_event)
         return BehaviorAction.noop()

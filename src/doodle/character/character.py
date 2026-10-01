@@ -12,7 +12,18 @@ from doodle.character.animation import Animation, AnimationController
 from doodle.character.assets import load_animation_frames, load_asset
 from doodle.character.state import CharacterState
 
-KNOWN_ANIMATION_NAMES = ("idle", "sit", "sleep", "stretch", "attention")
+KNOWN_ANIMATION_NAMES = (
+    "idle",
+    "sit",
+    "sleep",
+    "stretch",
+    "attention",
+    "surprised",
+    "dizzy",
+    "recover",
+    "curious",
+    "playful",
+)
 
 
 class Character(QObject):
@@ -115,10 +126,11 @@ class Character(QObject):
                     assets_dir=self._assets_dir,
                 )
                 if frames:
+                    duration_ms = 400 if anim_name in ("dizzy", "recover", "surprised") else 500
                     anim = Animation(
                         name=anim_name,
                         frames=frames,
-                        frame_duration_ms=500,
+                        frame_duration_ms=duration_ms,
                         loop=True,
                     )
                     self._animation_controller.register_animation(anim)
