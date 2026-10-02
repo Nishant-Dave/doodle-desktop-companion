@@ -8,7 +8,12 @@ from typing import Optional
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QPixmap
 
-from doodle.character.animation import Animation, AnimationController
+from doodle.character.animation import (
+    DEFAULT_FRAME_DURATION_MS,
+    PANDA_ANIMATION_SPECS,
+    Animation,
+    AnimationController,
+)
 from doodle.character.assets import load_animation_frames, load_asset
 from doodle.character.mood import Mood
 from doodle.character.state import CharacterState
@@ -129,6 +134,7 @@ class Character(QObject):
 
     def _load_all_animations(self) -> None:
         """Discover and register animation frame sequences for known animation names."""
+        raw_frames: dict[str, list[QPixmap]] = {}
         for anim_name in KNOWN_ANIMATION_NAMES:
             try:
                 frames = load_animation_frames(
@@ -137,13 +143,101 @@ class Character(QObject):
                     assets_dir=self._assets_dir,
                 )
                 if frames:
-                    duration_ms = 400 if anim_name in ("dizzy", "recover", "surprised") else 500
-                    anim = Animation(
-                        name=anim_name,
-                        frames=frames,
-                        frame_duration_ms=duration_ms,
-                        loop=True,
-                    )
-                    self._animation_controller.register_animation(anim)
+                    raw_frames[anim_name] = frames
             except (FileNotFoundError, ValueError):
                 pass
+
+        if not raw_frames:
+            return
+
+        idle_raw = raw_frames.get("idle", [])
+        recover_raw = raw_frames.get("recover", [])
+
+        for anim_name, frames in raw_frames.items():
+            spec = PANDA_ANIMATION_SPECS.get(anim_name)
+            if spec is None:
+                anim = Animation(
+                    name=anim_name,
+                    frames=frames,
+                    frame_duration_ms=DEFAULT_FRAME_DURATION_MS,
+                    loop=True,
+                )
+                self._animation_controller.register_animation(anim)
+                continue
+
+            # Construct choreographed frame sequences using project-owned assets
+            anim_frames: list[QPixmap] = []
+            if anim_name == "idle" and len(idle_raw) >= 2 and len(recover_raw) >= 1:
+                # Rhythm: quiet -> blink -> quiet -> double blink -> quiet -> weight shift -> quiet
+                anim_frames = [
+                    idle_raw[0],
+                    idle_raw[1],
+                    idle_raw[0],
+                    idle_raw[1],
+                    idle_raw[0],
+                    idle_raw[1],
+                    idle_raw[0],
+                    recover_raw[0],
+                    idle_raw[0],
+                ]
+            elif anim_name == "stretch" and len(frames) >= 2 and len(recover_raw) >= 1 and len(idle_raw) >= 1:
+                # Natural arc: enter -> peak stretch -> ease out -> settle -> rest
+                anim_frames = [
+                    frames[0],
+                    frames[1],
+                    frames[0],
+                    recover_raw[0],
+                    idle_raw[0],
+                ]
+            elif anim_name == "curious" and len(frames) >= 2 and len(recover_raw) >= 1 and len(idle_raw) >= 1:
+                # Natural arc: perk up -> head tilt -> tilt back -> settle -> rest
+                anim_frames = [
+                    frames[0],
+                    frames[1],
+                    frames[0],
+                    recover_raw[0],
+                    idle_raw[0],
+                ]
+            elif anim_name == "playful" and len(frames) >= 2 and len(recover_raw) >= 1 and len(idle_raw) >= 1:
+                # Natural arc: bounce 1-4 -> settle -> rest
+                anim_frames = [
+                    frames[0],
+                    frames[1],
+                    frames[0],
+                    frames[1],
+                    recover_raw[0],
+                    idle_raw[0],
+                ]
+            elif anim_name == "sleep" and len(frames) >= 2 and len(recover_raw) >= 1 and len(idle_raw) >= 1:
+                # Natural arc: calm inhale/exhale breath -> settle/wake -> rest
+                anim_frames = [
+                    frames[0],
+                    frames[1],
+                    recover_raw[0],
+                    idle_raw[0],
+                ]
+            else:
+                anim_frames = list(frames)
+
+            # Match frame count with duration count safely
+            durations = spec.frame_durations_ms
+            if len(durations) != len(anim_frames):
+                durations = None
+                default_ms = (
+                    spec.frame_durations_ms[0]
+                    if spec.frame_durations_ms
+                    else DEFAULT_FRAME_DURATION_MS
+                )
+            else:
+                default_ms = spec.frame_durations_ms[0]
+
+            anim = Animation(
+                name=anim_name,
+                frames=anim_frames,
+                frame_duration_ms=default_ms,
+                loop=spec.loop,
+                frame_durations_ms=durations,
+                loop_frame_count=spec.loop_frame_count,
+            )
+            self._animation_controller.register_animation(anim)
+

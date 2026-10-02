@@ -508,6 +508,7 @@ class IdleBehaviorRules:
                 "look_around",
                 "wake_up",
                 "self_amusement",
+                "attention",
             ):
                 return BehaviorAction.change_state(CharacterState.IDLE, loop=True)
 

@@ -11,7 +11,147 @@ from PySide6.QtGui import QPixmap
 
 logger = logging.getLogger(__name__)
 
+# Centralized animation timing constants (milliseconds)
 DEFAULT_FRAME_DURATION_MS: int = 500
+
+# Idle rhythm: quiet periods interspersed with natural blinks and subtle posture shifts
+IDLE_REST_SHORT_MS: int = 3200
+IDLE_REST_MED_MS: int = 3600
+IDLE_REST_LONG_MS: int = 4000
+IDLE_REST_END_MS: int = 3000
+IDLE_BLINK_MS: int = 180
+IDLE_DOUBLE_BLINK_GAP_MS: int = 220
+IDLE_WEIGHT_SHIFT_MS: int = 550
+
+# Expressive action timings
+STRETCH_ENTER_MS: int = 500
+STRETCH_HOLD_MS: int = 850
+STRETCH_EASE_MS: int = 450
+STRETCH_SETTLE_MS: int = 450
+STRETCH_REST_MS: int = 350
+
+CURIOUS_ENTER_MS: int = 350
+CURIOUS_HOLD_MS: int = 750
+CURIOUS_EASE_MS: int = 400
+CURIOUS_SETTLE_MS: int = 400
+CURIOUS_REST_MS: int = 300
+
+PLAYFUL_BOUNCE_MS: int = 280
+PLAYFUL_SETTLE_MS: int = 400
+PLAYFUL_REST_MS: int = 300
+
+SLEEP_BREATH_MS: int = 1200
+SLEEP_WAKE_SETTLE_MS: int = 500
+SLEEP_REST_MS: int = 350
+
+DIZZY_FRAME_MS: int = 300
+RECOVER_SETTLE_MS: int = 450
+RECOVER_REST_MS: int = 400
+ATTENTION_ALERT_MS: int = 350
+SURPRISED_FRAME_MS: int = 300
+SIT_FRAME_MS: int = 900
+
+
+@dataclass(frozen=True)
+class AnimationSpec:
+    """Specification describing timing and transition structure for a named animation."""
+
+    name: str
+    frame_durations_ms: tuple[int, ...]
+    loop: bool = True
+    loop_frame_count: Optional[int] = None
+
+
+PANDA_ANIMATION_SPECS: dict[str, AnimationSpec] = {
+    "idle": AnimationSpec(
+        name="idle",
+        frame_durations_ms=(
+            IDLE_REST_SHORT_MS,
+            IDLE_BLINK_MS,
+            IDLE_REST_MED_MS,
+            IDLE_BLINK_MS,
+            IDLE_DOUBLE_BLINK_GAP_MS,
+            IDLE_BLINK_MS,
+            IDLE_REST_LONG_MS,
+            IDLE_WEIGHT_SHIFT_MS,
+            IDLE_REST_END_MS,
+        ),
+        loop=True,
+    ),
+    "stretch": AnimationSpec(
+        name="stretch",
+        frame_durations_ms=(
+            STRETCH_ENTER_MS,
+            STRETCH_HOLD_MS,
+            STRETCH_EASE_MS,
+            STRETCH_SETTLE_MS,
+            STRETCH_REST_MS,
+        ),
+        loop=True,
+        loop_frame_count=3,
+    ),
+    "curious": AnimationSpec(
+        name="curious",
+        frame_durations_ms=(
+            CURIOUS_ENTER_MS,
+            CURIOUS_HOLD_MS,
+            CURIOUS_EASE_MS,
+            CURIOUS_SETTLE_MS,
+            CURIOUS_REST_MS,
+        ),
+        loop=True,
+        loop_frame_count=3,
+    ),
+    "playful": AnimationSpec(
+        name="playful",
+        frame_durations_ms=(
+            PLAYFUL_BOUNCE_MS,
+            PLAYFUL_BOUNCE_MS,
+            PLAYFUL_BOUNCE_MS,
+            PLAYFUL_BOUNCE_MS,
+            PLAYFUL_SETTLE_MS,
+            PLAYFUL_REST_MS,
+        ),
+        loop=True,
+        loop_frame_count=4,
+    ),
+    "sleep": AnimationSpec(
+        name="sleep",
+        frame_durations_ms=(
+            SLEEP_BREATH_MS,
+            SLEEP_BREATH_MS,
+            SLEEP_WAKE_SETTLE_MS,
+            SLEEP_REST_MS,
+        ),
+        loop=True,
+        loop_frame_count=2,
+    ),
+    "dizzy": AnimationSpec(
+        name="dizzy",
+        frame_durations_ms=(DIZZY_FRAME_MS, DIZZY_FRAME_MS),
+        loop=True,
+    ),
+    "recover": AnimationSpec(
+        name="recover",
+        frame_durations_ms=(RECOVER_SETTLE_MS, RECOVER_REST_MS),
+        loop=True,
+    ),
+    "attention": AnimationSpec(
+        name="attention",
+        frame_durations_ms=(ATTENTION_ALERT_MS, ATTENTION_ALERT_MS),
+        loop=True,
+    ),
+    "surprised": AnimationSpec(
+        name="surprised",
+        frame_durations_ms=(SURPRISED_FRAME_MS, SURPRISED_FRAME_MS),
+        loop=True,
+    ),
+    "sit": AnimationSpec(
+        name="sit",
+        frame_durations_ms=(SIT_FRAME_MS, SIT_FRAME_MS),
+        loop=True,
+    ),
+}
 
 
 @dataclass
@@ -22,9 +162,13 @@ class Animation:
     frames: Sequence[QPixmap] = field(default_factory=tuple)
     frame_duration_ms: int = DEFAULT_FRAME_DURATION_MS
     loop: bool = True
+    frame_durations_ms: Optional[Sequence[int]] = None
+    loop_frame_count: Optional[int] = None
 
     def __post_init__(self) -> None:
         self.frames = tuple(self.frames)
+        if self.frame_durations_ms is not None:
+            self.frame_durations_ms = tuple(self.frame_durations_ms)
 
     @property
     def frame_count(self) -> int:
@@ -41,6 +185,12 @@ class Animation:
         if 0 <= index < self.frame_count:
             return self.frames[index]
         return None
+
+    def get_frame_duration(self, index: int) -> int:
+        """Return the duration in milliseconds for the frame at the specified index."""
+        if self.frame_durations_ms and 0 <= index < len(self.frame_durations_ms):
+            return max(1, self.frame_durations_ms[index])
+        return max(1, self.frame_duration_ms)
 
 
 class AnimationController(QObject):
@@ -89,6 +239,13 @@ class AnimationController(QObject):
             return self._current_animation.get_frame(self._current_frame_index)
         return None
 
+    @property
+    def current_frame_duration_ms(self) -> int:
+        """Return the duration in milliseconds of the current frame."""
+        if self._current_animation is not None:
+            return self._current_animation.get_frame_duration(self._current_frame_index)
+        return DEFAULT_FRAME_DURATION_MS
+
     def register_animation(self, animation: Animation) -> None:
         """Register a named animation definition."""
         self._animations[animation.name.lower()] = animation
@@ -127,7 +284,7 @@ class AnimationController(QObject):
         if current is not None:
             self.frame_changed.emit(current)
 
-        duration = max(1, animation.frame_duration_ms)
+        duration = animation.get_frame_duration(0)
         self._timer.start(duration)
         return True
 
@@ -150,16 +307,33 @@ class AnimationController(QObject):
         )
 
         if self._current_frame_index + 1 < animation.frame_count:
-            self._current_frame_index += 1
-            pixmap = self.current_frame
-            if pixmap is not None:
-                self.frame_changed.emit(pixmap)
+            if (
+                should_loop
+                and animation.loop_frame_count is not None
+                and self._current_frame_index + 1 >= animation.loop_frame_count
+            ):
+                self._current_frame_index = 0
+                pixmap = self.current_frame
+                if pixmap is not None:
+                    self.frame_changed.emit(pixmap)
+                duration = animation.get_frame_duration(0)
+                self._timer.setInterval(duration)
+            else:
+                self._current_frame_index += 1
+                pixmap = self.current_frame
+                if pixmap is not None:
+                    self.frame_changed.emit(pixmap)
+                duration = animation.get_frame_duration(self._current_frame_index)
+                self._timer.setInterval(duration)
         else:
             if should_loop:
                 self._current_frame_index = 0
                 pixmap = self.current_frame
                 if pixmap is not None:
                     self.frame_changed.emit(pixmap)
+                duration = animation.get_frame_duration(0)
+                self._timer.setInterval(duration)
             else:
                 self.stop()
                 self.animation_finished.emit(animation.name)
+
