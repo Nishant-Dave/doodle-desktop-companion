@@ -30,11 +30,16 @@ STRETCH_EASE_MS: int = 450
 STRETCH_SETTLE_MS: int = 450
 STRETCH_REST_MS: int = 350
 
-CURIOUS_ENTER_MS: int = 350
-CURIOUS_HOLD_MS: int = 750
-CURIOUS_EASE_MS: int = 400
-CURIOUS_SETTLE_MS: int = 400
-CURIOUS_REST_MS: int = 300
+BLINK_ENTER_MS: int = 60
+BLINK_HOLD_MS: int = 80
+BLINK_EXIT_MS: int = 60
+
+CURIOUS_ENTER_MS: int = 200
+CURIOUS_PERK_MS: int = 250
+CURIOUS_TILT_MS: int = 300
+CURIOUS_HOLD_MS: int = 650
+CURIOUS_EASE_MS: int = 300
+CURIOUS_SETTLE_MS: int = 200
 
 PLAYFUL_BOUNCE_MS: int = 280
 PLAYFUL_SETTLE_MS: int = 400
@@ -78,6 +83,15 @@ PANDA_ANIMATION_SPECS: dict[str, AnimationSpec] = {
         ),
         loop=True,
     ),
+    "blink": AnimationSpec(
+        name="blink",
+        frame_durations_ms=(
+            BLINK_ENTER_MS,
+            BLINK_HOLD_MS,
+            BLINK_EXIT_MS,
+        ),
+        loop=False,
+    ),
     "stretch": AnimationSpec(
         name="stretch",
         frame_durations_ms=(
@@ -94,10 +108,11 @@ PANDA_ANIMATION_SPECS: dict[str, AnimationSpec] = {
         name="curious",
         frame_durations_ms=(
             CURIOUS_ENTER_MS,
+            CURIOUS_PERK_MS,
+            CURIOUS_TILT_MS,
             CURIOUS_HOLD_MS,
             CURIOUS_EASE_MS,
             CURIOUS_SETTLE_MS,
-            CURIOUS_REST_MS,
         ),
         loop=True,
         loop_frame_count=3,

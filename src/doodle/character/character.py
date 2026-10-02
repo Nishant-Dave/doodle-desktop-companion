@@ -20,6 +20,7 @@ from doodle.character.state import CharacterState
 
 KNOWN_ANIMATION_NAMES = (
     "idle",
+    "blink",
     "sit",
     "sleep",
     "stretch",
@@ -152,6 +153,7 @@ class Character(QObject):
 
         idle_raw = raw_frames.get("idle", [])
         recover_raw = raw_frames.get("recover", [])
+        blink_raw = raw_frames.get("blink", [])
 
         for anim_name, frames in raw_frames.items():
             spec = PANDA_ANIMATION_SPECS.get(anim_name)
@@ -167,15 +169,18 @@ class Character(QObject):
 
             # Construct choreographed frame sequences using project-owned assets
             anim_frames: list[QPixmap] = []
-            if anim_name == "idle" and len(idle_raw) >= 2 and len(recover_raw) >= 1:
-                # Rhythm: quiet -> blink -> quiet -> double blink -> quiet -> weight shift -> quiet
+            if anim_name == "idle" and len(idle_raw) >= 1 and len(recover_raw) >= 1:
+                # Use dedicated blink asset if available, otherwise idle_raw[1] or idle_raw[0]
+                blink_frame = blink_raw[1] if len(blink_raw) >= 2 else (idle_raw[1] if len(idle_raw) >= 2 else idle_raw[0])
+                breathe_frame = idle_raw[3] if len(idle_raw) >= 4 else idle_raw[0]
+                # Rhythm: quiet -> blink -> quiet breathing -> double blink -> quiet -> weight shift -> quiet
                 anim_frames = [
                     idle_raw[0],
-                    idle_raw[1],
+                    blink_frame,
+                    breathe_frame,
+                    blink_frame,
                     idle_raw[0],
-                    idle_raw[1],
-                    idle_raw[0],
-                    idle_raw[1],
+                    blink_frame,
                     idle_raw[0],
                     recover_raw[0],
                     idle_raw[0],
@@ -189,8 +194,11 @@ class Character(QObject):
                     recover_raw[0],
                     idle_raw[0],
                 ]
+            elif anim_name == "curious" and len(frames) >= 6:
+                # Upgraded 6-frame pack: rest -> perk -> tilt start -> peak tilt -> ease out -> settle
+                anim_frames = list(frames)
             elif anim_name == "curious" and len(frames) >= 2 and len(recover_raw) >= 1 and len(idle_raw) >= 1:
-                # Natural arc: perk up -> head tilt -> tilt back -> settle -> rest
+                # Natural arc fallback for legacy 2-frame assets
                 anim_frames = [
                     frames[0],
                     frames[1],
