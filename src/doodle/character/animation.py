@@ -30,6 +30,13 @@ STRETCH_EASE_MS: int = 450
 STRETCH_SETTLE_MS: int = 450
 STRETCH_REST_MS: int = 350
 
+# Milestone 2 Task 16D expressive pack frame timings
+YAWN_FRAME_DURATIONS_MS: tuple[int, ...] = (240, 240, 260, 280, 360, 280, 240, 240)
+STRETCH_EXPRESSIVE_DURATIONS_MS: tuple[int, ...] = (220, 240, 260, 300, 380, 320, 260, 220)
+DIZZY_EXPRESSIVE_DURATIONS_MS: tuple[int, ...] = (160, 160, 150, 160, 150, 150)
+RECOVER_EXPRESSIVE_DURATIONS_MS: tuple[int, ...] = (220, 200, 200, 200)
+LOOK_AROUND_FRAME_DURATIONS_MS: tuple[int, ...] = (250, 260, 280, 420, 280, 280, 420, 250)
+
 BLINK_ENTER_MS: int = 60
 BLINK_HOLD_MS: int = 80
 BLINK_EXIT_MS: int = 60
@@ -94,13 +101,7 @@ PANDA_ANIMATION_SPECS: dict[str, AnimationSpec] = {
     ),
     "stretch": AnimationSpec(
         name="stretch",
-        frame_durations_ms=(
-            STRETCH_ENTER_MS,
-            STRETCH_HOLD_MS,
-            STRETCH_EASE_MS,
-            STRETCH_SETTLE_MS,
-            STRETCH_REST_MS,
-        ),
+        frame_durations_ms=STRETCH_EXPRESSIVE_DURATIONS_MS,
         loop=True,
         loop_frame_count=3,
     ),
@@ -143,13 +144,23 @@ PANDA_ANIMATION_SPECS: dict[str, AnimationSpec] = {
     ),
     "dizzy": AnimationSpec(
         name="dizzy",
-        frame_durations_ms=(DIZZY_FRAME_MS, DIZZY_FRAME_MS),
-        loop=True,
+        frame_durations_ms=DIZZY_EXPRESSIVE_DURATIONS_MS,
+        loop=False,
     ),
     "recover": AnimationSpec(
         name="recover",
-        frame_durations_ms=(RECOVER_SETTLE_MS, RECOVER_REST_MS),
-        loop=True,
+        frame_durations_ms=RECOVER_EXPRESSIVE_DURATIONS_MS,
+        loop=False,
+    ),
+    "yawn": AnimationSpec(
+        name="yawn",
+        frame_durations_ms=YAWN_FRAME_DURATIONS_MS,
+        loop=False,
+    ),
+    "look_around": AnimationSpec(
+        name="look_around",
+        frame_durations_ms=LOOK_AROUND_FRAME_DURATIONS_MS,
+        loop=False,
     ),
     "attention": AnimationSpec(
         name="attention",
@@ -272,6 +283,11 @@ class AnimationController(QObject):
     def has_animation(self, name: str) -> bool:
         """Check whether an animation with the given name is registered."""
         return name.lower() in self._animations
+
+    @property
+    def available_animation_names(self) -> list[str]:
+        """Return the names of all registered animations."""
+        return list(self._animations.keys())
 
     def play(self, name: str, loop: Optional[bool] = None) -> bool:
         """Start playing a registered animation by name.

@@ -30,6 +30,8 @@ KNOWN_ANIMATION_NAMES = (
     "recover",
     "curious",
     "playful",
+    "yawn",
+    "look_around",
 )
 
 
@@ -185,6 +187,8 @@ class Character(QObject):
                     recover_raw[0],
                     idle_raw[0],
                 ]
+            elif anim_name == "stretch" and len(frames) >= 8:
+                anim_frames = list(frames)
             elif anim_name == "stretch" and len(frames) >= 2 and len(recover_raw) >= 1 and len(idle_raw) >= 1:
                 # Natural arc: enter -> peak stretch -> ease out -> settle -> rest
                 anim_frames = [
@@ -196,6 +200,12 @@ class Character(QObject):
                 ]
             elif anim_name == "curious" and len(frames) >= 6:
                 # Upgraded 6-frame pack: rest -> perk -> tilt start -> peak tilt -> ease out -> settle
+                anim_frames = list(frames)
+            elif anim_name == "yawn" and len(frames) >= 8:
+                anim_frames = list(frames)
+            elif anim_name == "look_around" and len(frames) >= 8:
+                anim_frames = list(frames)
+            elif anim_name == "recover" and len(frames) >= 4:
                 anim_frames = list(frames)
             elif anim_name == "curious" and len(frames) >= 2 and len(recover_raw) >= 1 and len(idle_raw) >= 1:
                 # Natural arc fallback for legacy 2-frame assets

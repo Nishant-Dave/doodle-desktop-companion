@@ -572,10 +572,10 @@ class TestRichIdlePersonalityIntegration(unittest.TestCase):
         # Advance clock by 35s (> cooldown, still short idle tier)
         self.clock.advance(35.0)
         act2 = self.app.behavior_engine.trigger_idle_timeout()
-        # STRETCH was most recent, so next in tier is CURIOUS
+        # STRETCH was most recent, so next in tier is eligible short behavior (look_around or curious)
         self.assertEqual(act2.action_type, ACTION_PLAY_ANIMATION)
-        self.assertEqual(act2.animation_name, "curious")
-        self.app.character.animation_finished.emit("curious")
+        self.assertIn(act2.animation_name, ("look_around", "curious"))
+        self.app.character.animation_finished.emit(act2.animation_name)
         self.assertEqual(self.app.character.state, CharacterState.IDLE)
 
         # Advance clock to longer idle tier (100s idle)

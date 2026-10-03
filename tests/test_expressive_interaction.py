@@ -204,9 +204,11 @@ class TestExpressiveAnimations(unittest.TestCase):
         self.assertEqual(self.char.current_animation_name, "dizzy")
         self.assertTrue(self.char.animation_controller.is_playing)
 
-        # Advance frames to complete 2-frame animation
-        self.char.animation_controller.advance_frame()
-        self.char.animation_controller.advance_frame()
+        # Advance frames to complete animation
+        anim = self.char.animation_controller.get_animation("dizzy")
+        self.assertIsNotNone(anim)
+        for _ in range(anim.frame_count):
+            self.char.animation_controller.advance_frame()
         self.assertEqual(finished_anims, ["dizzy"])
         self.assertFalse(self.char.animation_controller.is_playing)
 
