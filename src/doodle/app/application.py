@@ -17,8 +17,10 @@ from doodle.character.mood import Mood
 from doodle.character.state import CharacterState
 from doodle.desktop.companion_window import CompanionWindow
 from doodle.desktop.tray import DoodleTrayIcon
+from doodle.persistence.capture_store import CaptureRecord, CaptureStore, CaptureType
 from doodle.persistence.settings import SettingsManager
 from doodle.ui.interaction_menu import InteractionMenu
+from doodle.ui.quick_capture import QuickCaptureCard
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +39,8 @@ class DoodleApplication:
         behavior_engine: Optional[BehaviorEngine] = None,
         selection_policy: Optional[IdleSelectionPolicy] = None,
         use_rich_idle: bool = False,
+        capture_store: Optional[CaptureStore] = None,
+        enable_quick_capture: bool = False,
     ) -> None:
         self._argv = list(argv) if argv is not None else sys.argv
 
@@ -90,6 +94,21 @@ class DoodleApplication:
         self._menu.action_requested.connect(self._on_menu_action_requested)
         self._menu.dismissed.connect(self._on_menu_dismissed)
 
+        # Quick Capture overlay and storage
+        self._enable_quick_capture = enable_quick_capture or (capture_store is not None)
+        if self._enable_quick_capture:
+            self._capture_store: Optional[CaptureStore] = capture_store or CaptureStore()
+            self._quick_capture_card: Optional[QuickCaptureCard] = QuickCaptureCard(
+                parent=self._window,
+                capture_store=self._capture_store,
+            )
+            self._quick_capture_card.capture_saved.connect(self._on_capture_saved)
+            self._quick_capture_card.capture_cancelled.connect(self._on_capture_cancelled)
+            self._menu.enable_capture_actions(True)
+        else:
+            self._capture_store = None
+            self._quick_capture_card = None
+
         # Wire companion window interactions
         self._window.character_clicked.connect(self._on_character_clicked)
         self._window.character_moved.connect(self._on_character_moved)
@@ -113,9 +132,13 @@ class DoodleApplication:
         self._lifecycle.add_shutdown_hook(self._window.proximity_monitor.stop)
         self._lifecycle.add_shutdown_hook(self._behavior_engine.cleanup)
         self._lifecycle.add_shutdown_hook(self._menu.cleanup)
+        if self._quick_capture_card is not None:
+            self._lifecycle.add_shutdown_hook(self._quick_capture_card.cleanup)
         self._lifecycle.add_shutdown_hook(self._tray.cleanup)
         self._lifecycle.add_shutdown_hook(self._character.stop_animation)
         self._lifecycle.add_shutdown_hook(self._save_state)
+        if self._capture_store is not None:
+            self._lifecycle.add_shutdown_hook(self._capture_store.close)
 
     @property
     def lifecycle(self) -> AppLifecycle:
@@ -158,6 +181,16 @@ class DoodleApplication:
         return self._menu
 
     @property
+    def capture_store(self) -> Optional[CaptureStore]:
+        """Return the managed capture store instance, if enabled."""
+        return self._capture_store
+
+    @property
+    def quick_capture_card(self) -> Optional[QuickCaptureCard]:
+        """Return the managed quick capture card overlay, if enabled."""
+        return self._quick_capture_card
+
+    @property
     def behavior_engine(self) -> BehaviorEngine:
         """Return the managed behavior engine component."""
         return self._behavior_engine
@@ -179,6 +212,8 @@ class DoodleApplication:
         self._behavior_engine.on_hide_requested()
         if self._menu.isVisible():
             self._menu.dismiss()
+        if self._quick_capture_card is not None and self._quick_capture_card.isVisible():
+            self._quick_capture_card.dismiss()
         self._window.hide()
 
     def show_interaction_menu(self) -> None:
@@ -195,9 +230,32 @@ class DoodleApplication:
         """Dismiss the interaction menu if visible."""
         self._menu.dismiss()
 
+    def show_quick_capture(self, capture_type: CaptureType = CaptureType.IDEA) -> None:
+        """Open the Quick Capture card adjacent to the companion window."""
+        if not self._enable_quick_capture or self._quick_capture_card is None:
+            return
+        if self._menu.isVisible():
+            self._menu.dismiss()
+        self._behavior_engine.on_capture_requested()
+        self._character.set_state(CharacterState.ATTENTION)
+        bounds = self._window.position_manager.get_usable_screen_bounds()
+        self._quick_capture_card.show_near(
+            target_rect=self._window.geometry(),
+            screen_bounds=bounds,
+            initial_type=capture_type,
+        )
+
+    def dismiss_quick_capture(self) -> None:
+        """Dismiss the Quick Capture card if visible."""
+        if self._quick_capture_card is not None and self._quick_capture_card.isVisible():
+            self._quick_capture_card.dismiss()
+
     def _on_character_clicked(self) -> None:
         """Slot invoked when user clicks the companion character."""
         self._behavior_engine.on_character_clicked()
+        if self._quick_capture_card is not None and self._quick_capture_card.isVisible():
+            self._quick_capture_card.dismiss()
+            return
         if self._menu.isVisible():
             self._menu.dismiss()
         else:
@@ -208,16 +266,46 @@ class DoodleApplication:
         self._behavior_engine.on_character_moved(pos)
         if self._menu.isVisible():
             self._menu.dismiss()
+        if self._quick_capture_card is not None and self._quick_capture_card.isVisible():
+            self._quick_capture_card.dismiss()
 
     def _on_menu_dismissed(self) -> None:
         """Slot invoked when interaction menu is dismissed."""
         self._behavior_engine.on_menu_dismissed()
+        if self._quick_capture_card is not None and self._quick_capture_card.isVisible():
+            return
         if self._character.state == CharacterState.ATTENTION:
             self._character.set_state(CharacterState.IDLE)
 
     def _on_menu_action_requested(self, action_id: str) -> None:
         """Slot invoked when a menu action is requested (action boundary)."""
-        logger.info("Menu action requested: %s", action_id)
+        normalized_id = action_id.lower()
+        logger.info("Menu action requested: %s", normalized_id)
+        if self._enable_quick_capture and self._quick_capture_card is not None:
+            capture_type_map = {
+                "idea": CaptureType.IDEA,
+                "journal": CaptureType.JOURNAL,
+                "mood": CaptureType.MOOD,
+                "remember": CaptureType.REMEMBER,
+            }
+            if normalized_id in capture_type_map:
+                capture_type = capture_type_map[normalized_id]
+                self._menu.dismiss()
+                self.show_quick_capture(capture_type)
+
+    def _on_capture_saved(self, record: CaptureRecord) -> None:
+        """Slot invoked when a quick capture is successfully persisted."""
+        logger.info("Quick capture saved: id=%s, type=%s", record.id, record.capture_type)
+        self._behavior_engine.on_capture_saved()
+        if self._character.state == CharacterState.ATTENTION:
+            self._character.set_state(CharacterState.IDLE)
+
+    def _on_capture_cancelled(self) -> None:
+        """Slot invoked when quick capture is cancelled or dismissed without saving."""
+        logger.info("Quick capture cancelled")
+        self._behavior_engine.on_capture_cancelled()
+        if self._character.state == CharacterState.ATTENTION:
+            self._character.set_state(CharacterState.IDLE)
 
     def quit(self) -> None:
         """Perform clean shutdown and terminate the Qt application event loop."""

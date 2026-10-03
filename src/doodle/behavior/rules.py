@@ -27,6 +27,9 @@ EVENT_DRAGGING: str = "DRAGGING"
 EVENT_DRAG_RELEASED: str = "DRAG_RELEASED"
 EVENT_DRAG_FINISHED: str = "DRAG_RELEASED"
 EVENT_CURSOR_ENTERED_PROXIMITY: str = "CURSOR_ENTERED_PROXIMITY"
+EVENT_CAPTURE_REQUESTED: str = "CAPTURE_REQUESTED"
+EVENT_CAPTURE_SAVED: str = "CAPTURE_SAVED"
+EVENT_CAPTURE_CANCELLED: str = "CAPTURE_CANCELLED"
 
 # Action type representations
 ACTION_CHANGE_STATE: str = "CHANGE_STATE"
@@ -646,6 +649,15 @@ class IdleBehaviorRules:
         if normalized_event == EVENT_MENU_DISMISSED:
             if context.current_state == CharacterState.ATTENTION:
                 return BehaviorAction.change_state(CharacterState.IDLE, loop=True)
+            return BehaviorAction.noop()
+
+        # Quick capture saved or cancelled returns to IDLE if character was in ATTENTION
+        if normalized_event in (EVENT_CAPTURE_SAVED, EVENT_CAPTURE_CANCELLED):
+            if context.current_state == CharacterState.ATTENTION:
+                return BehaviorAction.change_state(CharacterState.IDLE, loop=True)
+            return BehaviorAction.noop()
+
+        if normalized_event == EVENT_CAPTURE_REQUESTED:
             return BehaviorAction.noop()
 
         # 5. Idle timeout triggers next deterministic idle action

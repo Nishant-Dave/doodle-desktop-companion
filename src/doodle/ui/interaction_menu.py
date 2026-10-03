@@ -222,6 +222,21 @@ class InteractionMenu(QWidget):
         btn = self.get_action_button(action_id)
         return btn.isEnabled() if btn is not None else False
 
+    def set_action_enabled(self, action_id: str, enabled: bool) -> None:
+        """Enable or disable a specific action button."""
+        btn = self.get_action_button(action_id)
+        if btn is not None:
+            btn.setEnabled(enabled)
+            if enabled:
+                btn.setToolTip(f"Quick Capture: {btn.text()}")
+            else:
+                btn.setToolTip(f"{btn.text()} (Not available in Milestone 1)")
+
+    def enable_capture_actions(self, enabled: bool = True) -> None:
+        """Enable or disable all Quick Capture entry actions (idea, journal, mood, remember)."""
+        for action_id in ("idea", "journal", "mood", "remember"):
+            self.set_action_enabled(action_id, enabled)
+
     def show_near(
         self,
         target_rect: QRect,

@@ -16,6 +16,9 @@ from doodle.behavior.rules import (
     DEFAULT_QUIET_PERIOD_MS,
     DEFAULT_QUIET_PERIOD_S,
     EVENT_ANIMATION_FINISHED,
+    EVENT_CAPTURE_CANCELLED,
+    EVENT_CAPTURE_REQUESTED,
+    EVENT_CAPTURE_SAVED,
     EVENT_CHARACTER_CLICKED,
     EVENT_CURSOR_ENTERED_PROXIMITY,
     EVENT_DRAG_RELEASED,
@@ -401,6 +404,24 @@ class BehaviorEngine(QObject):
         self.record_user_interaction()
         self._is_menu_open = False
         self.handle_event(EVENT_MENU_DISMISSED)
+        self.start_idle_timer()
+
+    def on_capture_requested(self) -> None:
+        """Slot invoked when quick capture is requested."""
+        self.record_user_interaction()
+        self.stop_idle_timer()
+        self.handle_event(EVENT_CAPTURE_REQUESTED)
+
+    def on_capture_saved(self) -> None:
+        """Slot invoked when quick capture is successfully saved."""
+        self.record_user_interaction()
+        self.handle_event(EVENT_CAPTURE_SAVED)
+        self.start_idle_timer()
+
+    def on_capture_cancelled(self) -> None:
+        """Slot invoked when quick capture is dismissed without saving."""
+        self.record_user_interaction()
+        self.handle_event(EVENT_CAPTURE_CANCELLED)
         self.start_idle_timer()
 
     def on_character_moved(self, pos: Optional[QPoint] = None) -> None:
