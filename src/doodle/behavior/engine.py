@@ -92,6 +92,7 @@ class BehaviorEngine(QObject):
         # Quiet period and idle timing tracking
         self._start_time: float = self._time_provider()
         self._last_interaction_time: float = float("-inf")
+        self._last_autonomous_action_time: float = float("-inf")
         self._idle_start_time: float = self._start_time
 
         # Internal idle timer
@@ -166,12 +167,25 @@ class BehaviorEngine(QObject):
 
     @property
     def is_in_quiet_period(self) -> bool:
-        """Return True if currently within the quiet period following user interaction."""
-        if self._last_interaction_time == float("-inf"):
-            return False
-        elapsed_ms = (self._time_provider() - self._last_interaction_time) * 1000.0
-        return elapsed_ms < self._quiet_period_ms
+        """Return True if currently within the quiet period following user interaction or autonomous action."""
+        now = self._time_provider()
+        if self._last_interaction_time != float("-inf"):
+            if (now - self._last_interaction_time) * 1000.0 < self._quiet_period_ms:
+                return True
+        if self._last_autonomous_action_time != float("-inf"):
+            if (now - self._last_autonomous_action_time) * 1000.0 < self._quiet_period_ms:
+                return True
+        return False
 
+    @property
+    def last_autonomous_action_time(self) -> float:
+        """Return timestamp of the most recent autonomous action completion."""
+        return self._last_autonomous_action_time
+
+    def record_autonomous_action(self, timestamp: Optional[float] = None) -> None:
+        """Record autonomous action completion and initiate quiet period without resetting idle progression."""
+        now = timestamp if timestamp is not None else self._time_provider()
+        self._last_autonomous_action_time = now
 
     def record_user_interaction(self, timestamp: Optional[float] = None) -> None:
         """Record meaningful user interaction and initiate quiet period."""
@@ -233,8 +247,12 @@ class BehaviorEngine(QObject):
             self._character.current_animation_name if self._character is not None else None
         )
         idle_duration_s = max(0.0, now - self._idle_start_time)
-        time_since_interaction_s = max(0.0, now - self._last_interaction_time)
-        in_quiet = (time_since_interaction_s * 1000.0) < self._quiet_period_ms
+        time_since_interaction_s = (
+            max(0.0, now - self._last_interaction_time)
+            if self._last_interaction_time != float("-inf")
+            else float("inf")
+        )
+        in_quiet = self.is_in_quiet_period
         current_mood = self._mood_manager.get_mood(now, idle_duration_s=idle_duration_s)
         if self._character is not None:
             self._character.set_mood(current_mood)
@@ -355,7 +373,21 @@ class BehaviorEngine(QObject):
 
     def on_animation_finished(self, animation_name: str) -> None:
         """Slot invoked when an animation finishes playing."""
+        now = self._time_provider()
         self.handle_event(EVENT_ANIMATION_FINISHED, animation_name=animation_name)
+        # Meaningful autonomous behaviors enter a minimum quiet period upon completion
+        if self._policy is not None and animation_name in (
+            "yawn",
+            "stretch",
+            "look_around",
+            "curious",
+            "playful",
+            "sleep",
+            "wake_up",
+            "self_amusement",
+            "recover",
+        ):
+            self.record_autonomous_action(now)
 
     def on_menu_opened(self) -> None:
         """Slot invoked when interaction menu opens."""
@@ -415,7 +447,11 @@ class BehaviorEngine(QObject):
 
     def on_cursor_entered_proximity(self) -> BehaviorAction:
         """Slot invoked when cursor crosses into window proximity zone."""
-        return self.handle_event(EVENT_CURSOR_ENTERED_PROXIMITY)
+        action = self.handle_event(EVENT_CURSOR_ENTERED_PROXIMITY)
+        if action.action_type != ACTION_NOOP:
+            # Meaningful reaction to user cursor proximity counts as user interaction
+            self.record_user_interaction()
+        return action
 
     def cleanup(self) -> None:
         """Clean up behavior engine resources during application shutdown."""

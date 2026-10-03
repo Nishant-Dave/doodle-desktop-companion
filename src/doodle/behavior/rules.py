@@ -127,6 +127,58 @@ MOOD_PREFERRED_BEHAVIORS: dict[Mood, tuple[IdleBehavior, ...]] = {
     ),
 }
 
+# Conceptual behavioral tiers (Milestone 2 Task 17)
+TIER_1_MICRO_LIFE: tuple[str, ...] = ("blink", "breathing", "idle")
+TIER_2_AWARENESS: tuple[IdleBehavior, ...] = (
+    IdleBehavior.LOOK_AROUND,
+    IdleBehavior.CURIOUS,
+)
+TIER_3_MAJOR: tuple[IdleBehavior, ...] = (
+    IdleBehavior.YAWN,
+    IdleBehavior.STRETCH,
+    IdleBehavior.NAP,
+    IdleBehavior.WAKE_UP,
+    IdleBehavior.PLAYFUL_DANCE,
+    IdleBehavior.SELF_AMUSEMENT,
+)
+
+
+def get_behavior_tier(behavior: Union[IdleBehavior, str]) -> int:
+    """Return the conceptual tier (1, 2, or 3) for the given behavior or animation name."""
+    if isinstance(behavior, IdleBehavior):
+        if behavior in TIER_2_AWARENESS:
+            return 2
+        return 3
+    if isinstance(behavior, str):
+        normalized = behavior.strip().lower()
+        if normalized in ("blink", "breathing", "idle"):
+            return 1
+        if normalized in ("look_around", "curious"):
+            return 2
+        try:
+            enum_val = IdleBehavior(behavior.upper().strip())
+            if enum_val in TIER_2_AWARENESS:
+                return 2
+            return 3
+        except ValueError:
+            return 3
+    return 3
+
+
+def is_micro_life(behavior: Union[IdleBehavior, str]) -> bool:
+    """Return True if the behavior is Tier 1 micro-life."""
+    return get_behavior_tier(behavior) == 1
+
+
+def is_awareness_behavior(behavior: Union[IdleBehavior, str]) -> bool:
+    """Return True if the behavior is Tier 2 awareness."""
+    return get_behavior_tier(behavior) == 2
+
+
+def is_major_behavior(behavior: Union[IdleBehavior, str]) -> bool:
+    """Return True if the behavior is Tier 3 major idle behavior."""
+    return get_behavior_tier(behavior) == 3
+
 
 def is_behavior_available(
     behavior: Union[IdleBehavior, str],
@@ -305,6 +357,11 @@ class IdleSelectionPolicy:
                 self.record_behavior(selected, now)
                 return selected
 
+            # Part 4: SLEEPY should make Doodle quieter, not busier.
+            # If all sleepy candidates are on cooldown or just played, do NOT fall back to active tier candidates.
+            if mood == Mood.SLEEPY:
+                return None
+
         # 2. Standard tier candidate selection (fallback or neutral mood)
         if available_behaviors is not None:
             available_set = set(available_behaviors)
@@ -384,13 +441,78 @@ class BehaviorContext:
     is_dragging: bool = False
     current_animation: Optional[str] = None
     idle_duration_s: float = 0.0
-    time_since_last_interaction_s: float = 0.0
+    time_since_last_interaction_s: float = float("inf")
     quiet_period_s: float = DEFAULT_QUIET_PERIOD_S
     is_in_quiet_period: bool = False
     current_time_s: Optional[float] = None
     available_behaviors: Optional[Sequence[IdleBehavior]] = None
     policy: Optional[IdleSelectionPolicy] = None
     mood: Mood = Mood.NEUTRAL
+
+
+def check_autonomous_eligibility(
+    context: BehaviorContext,
+    behavior: Optional[IdleBehavior] = None,
+) -> tuple[bool, str]:
+    """Check whether autonomous behavior execution is currently eligible.
+
+    Verifies the 8 standard blocking conditions:
+    1. Is Doodle visible?
+    2. Is Doodle currently interacting with the user?
+    3. Is an animation already playing?
+    4. Is the quiet period active?
+    5. Is the same behavior on cooldown? (when candidate specified)
+    6. Has the user interacted recently?
+    7. Is the current mood compatible? (when candidate specified)
+    8. Is the behavior asset actually available? (when candidate specified)
+
+    Returns:
+        (is_eligible: bool, reason: str)
+    """
+    # 1. Is Doodle visible?
+    if not context.is_visible:
+        return False, "hidden"
+
+    # 2. Is Doodle currently interacting with the user?
+    if context.is_dragging:
+        return False, "dragging"
+    if context.is_menu_open:
+        return False, "menu_open"
+    if context.current_state == CharacterState.ATTENTION:
+        return False, "user_attention"
+
+    # 3. Is an animation already playing?
+    # Only idle/None indicates resting micro-life pose; any active animation blocks autonomous behavior
+    if context.current_animation not in (None, "idle"):
+        return False, f"animation_playing_{context.current_animation}"
+
+    # 4. Is the quiet period active?
+    if context.is_in_quiet_period:
+        return False, "in_quiet_period"
+
+    # 6. Has the user interacted recently?
+    # If time since last interaction is less than quiet_period_s, reject
+    if context.time_since_last_interaction_s < context.quiet_period_s:
+        return False, "recent_user_interaction"
+
+    # If checking a specific candidate behavior:
+    if behavior is not None:
+        policy = context.policy
+        # 5. Is the same behavior on cooldown?
+        now = context.current_time_s
+        if policy is not None and policy.is_on_cooldown(behavior, now):
+            return False, f"cooldown_{behavior}"
+
+        # 7. Is the current mood compatible?
+        # If companion is SLEEPY, only relaxed/sleepy behaviors are compatible
+        if context.mood == Mood.SLEEPY and behavior not in MOOD_PREFERRED_BEHAVIORS[Mood.SLEEPY]:
+            return False, f"incompatible_mood_{context.mood}"
+
+        # 8. Is the behavior asset actually available?
+        if not is_behavior_available(behavior, context.available_behaviors):
+            return False, f"asset_unavailable_{behavior}"
+
+    return True, "eligible"
 
 
 class IdleBehaviorRules:
@@ -528,8 +650,6 @@ class IdleBehaviorRules:
 
         # 5. Idle timeout triggers next deterministic idle action
         if normalized_event == EVENT_IDLE_TIMEOUT:
-            # Idle action is only valid when character is IDLE, visible, not dragging, not in menu,
-            # and not playing a transient expressive animation
             if (
                 context.is_visible
                 and not context.is_dragging
@@ -537,11 +657,11 @@ class IdleBehaviorRules:
                 and context.current_state == CharacterState.IDLE
                 and context.current_animation in (None, "idle")
             ):
-                # If a deterministic selection policy is active, select next behavior
                 active_policy = self._policy or context.policy
                 if active_policy is not None:
-                    # Suppress autonomous behavior during quiet period after interaction
-                    if context.is_in_quiet_period:
+                    # Check rich autonomous eligibility (quiet periods, recent interaction, etc.)
+                    is_eligible, _ = check_autonomous_eligibility(context)
+                    if not is_eligible:
                         return BehaviorAction.noop()
 
                     selected = active_policy.select(
@@ -554,7 +674,7 @@ class IdleBehaviorRules:
                         return action_for_idle_behavior(selected)
                     return BehaviorAction.noop()
 
-                # Fallback to deterministic cycle
+                # Fallback to deterministic cycle (Milestone 1)
                 if not self._idle_cycle:
                     return BehaviorAction.noop()
                 next_state = self._idle_cycle[self._cycle_index]
