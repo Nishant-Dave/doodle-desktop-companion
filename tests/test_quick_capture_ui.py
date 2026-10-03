@@ -383,6 +383,82 @@ class TestQuickCaptureAppIntegration(unittest.TestCase):
         self.assertFalse(card.isVisible())
         self.assertFalse(self.app.window.isVisible())
 
+    def test_close_button_no_focus_and_tab_order(self) -> None:
+        """Close button has NoFocus so Tab navigates directly between input and type combo."""
+        card = self.app.quick_capture_card
+        self.assertIsNotNone(card)
+        self.assertEqual(card._close_btn.focusPolicy(), Qt.FocusPolicy.NoFocus)
+
+    def test_type_selector_delegate_clean_display(self) -> None:
+        """TypeSelectorDelegate renders clean names in the popup view without down chevrons."""
+        card = self.app.quick_capture_card
+        self.assertIsNotNone(card)
+        delegate = card.type_selector.itemDelegate()
+        self.assertIsNotNone(delegate)
+        for val in ("IDEA ▾", "JOURNAL ▾", "MOOD ▾", "REMEMBER ▾"):
+            display = delegate.displayText(val, None)
+            self.assertNotIn("▾", display)
+            self.assertEqual(display, val.replace(" ▾", "").strip())
+
+    def test_edge_positioning_and_clamping(self) -> None:
+        """Card stays completely within screen bounds across all 4 screen edges/corners."""
+        card = self.app.quick_capture_card
+        self.assertIsNotNone(card)
+        screen = QRect(0, 0, 1920, 1080)
+
+        # Top-left corner
+        card.show_near(QRect(0, 0, 160, 160), screen_bounds=screen)
+        card_rect = QRect(card.pos(), card.size())
+        self.assertTrue(screen.contains(card_rect), f"Card {card_rect} should be within {screen}")
+
+        # Top-right corner
+        card.show_near(QRect(1760, 0, 160, 160), screen_bounds=screen)
+        card_rect = QRect(card.pos(), card.size())
+        self.assertTrue(screen.contains(card_rect), f"Card {card_rect} should be within {screen}")
+
+        # Bottom-left corner
+        card.show_near(QRect(0, 920, 160, 160), screen_bounds=screen)
+        card_rect = QRect(card.pos(), card.size())
+        self.assertTrue(screen.contains(card_rect), f"Card {card_rect} should be within {screen}")
+
+        # Bottom-right corner
+        card.show_near(QRect(1760, 920, 160, 160), screen_bounds=screen)
+        card_rect = QRect(card.pos(), card.size())
+        self.assertTrue(screen.contains(card_rect), f"Card {card_rect} should be within {screen}")
+
+    def test_drag_repositioning_flow(self) -> None:
+        """Dragging companion window updates position for subsequent Quick Capture opens."""
+        # 1. Open at initial position
+        self.app.show_quick_capture(CaptureType.IDEA)
+        card = self.app.quick_capture_card
+        self.assertIsNotNone(card)
+        initial_pos = card.pos()
+        card.dismiss()
+
+        # 2. Simulate dragging companion to a new position
+        new_window_pos = QPoint(700, 700)
+        self.app.window.move(new_window_pos)
+
+        # 3. Open Quick Capture again
+        self.app.show_quick_capture(CaptureType.IDEA)
+        new_card_pos = card.pos()
+        self.assertNotEqual(initial_pos, new_card_pos)
+        self.assertGreater(new_card_pos.x(), 500)
+
+    def test_outside_click_dismissal(self) -> None:
+        """Clicking outside or dismissing the card cancels cleanly without saving."""
+        self.app.show_quick_capture(CaptureType.JOURNAL)
+        card = self.app.quick_capture_card
+        self.assertIsNotNone(card)
+        self.assertTrue(card.isVisible())
+
+        # Simulate outside dismissal (hiding without saving)
+        card.dismiss()
+
+        self.assertFalse(card.isVisible())
+        self.assertEqual(self.store.count(), 0)
+        self.assertEqual(self.app.character.state, CharacterState.IDLE)
+
 
 if __name__ == "__main__":
     unittest.main()

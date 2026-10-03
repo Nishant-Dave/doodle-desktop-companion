@@ -26,6 +26,7 @@ AVAILABLE_ACTIONS: Sequence[tuple[str, str]] = (
     ("mood", "Mood"),
     ("idea", "Idea"),
     ("remember", "Remember"),
+    ("recent_captures", "Recent Captures"),
     ("settings", "Settings"),
 )
 
@@ -233,8 +234,8 @@ class InteractionMenu(QWidget):
                 btn.setToolTip(f"{btn.text()} (Not available in Milestone 1)")
 
     def enable_capture_actions(self, enabled: bool = True) -> None:
-        """Enable or disable all Quick Capture entry actions (idea, journal, mood, remember)."""
-        for action_id in ("idea", "journal", "mood", "remember"):
+        """Enable or disable all Quick Capture entry actions (idea, journal, mood, remember, recent_captures)."""
+        for action_id in ("idea", "journal", "mood", "remember", "recent_captures"):
             self.set_action_enabled(action_id, enabled)
 
     def show_near(

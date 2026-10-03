@@ -21,6 +21,7 @@ from doodle.persistence.capture_store import CaptureRecord, CaptureStore, Captur
 from doodle.persistence.settings import SettingsManager
 from doodle.ui.interaction_menu import InteractionMenu
 from doodle.ui.quick_capture import QuickCaptureCard
+from doodle.ui.recent_captures import RecentCapturesPanel
 
 logger = logging.getLogger(__name__)
 
@@ -101,13 +102,19 @@ class DoodleApplication:
             self._quick_capture_card: Optional[QuickCaptureCard] = QuickCaptureCard(
                 parent=self._window,
                 capture_store=self._capture_store,
+                acknowledgment_delay_ms=180,
             )
             self._quick_capture_card.capture_saved.connect(self._on_capture_saved)
             self._quick_capture_card.capture_cancelled.connect(self._on_capture_cancelled)
+            self._recent_captures_panel: Optional[RecentCapturesPanel] = RecentCapturesPanel(
+                parent=self._window,
+            )
+            self._recent_captures_panel.dismissed.connect(self._on_recent_captures_dismissed)
             self._menu.enable_capture_actions(True)
         else:
             self._capture_store = None
             self._quick_capture_card = None
+            self._recent_captures_panel = None
 
         # Wire companion window interactions
         self._window.character_clicked.connect(self._on_character_clicked)
@@ -134,6 +141,8 @@ class DoodleApplication:
         self._lifecycle.add_shutdown_hook(self._menu.cleanup)
         if self._quick_capture_card is not None:
             self._lifecycle.add_shutdown_hook(self._quick_capture_card.cleanup)
+        if self._recent_captures_panel is not None:
+            self._lifecycle.add_shutdown_hook(self._recent_captures_panel.cleanup)
         self._lifecycle.add_shutdown_hook(self._tray.cleanup)
         self._lifecycle.add_shutdown_hook(self._character.stop_animation)
         self._lifecycle.add_shutdown_hook(self._save_state)
@@ -191,6 +200,11 @@ class DoodleApplication:
         return self._quick_capture_card
 
     @property
+    def recent_captures_panel(self) -> Optional[RecentCapturesPanel]:
+        """Return the managed recent captures panel overlay, if enabled."""
+        return self._recent_captures_panel
+
+    @property
     def behavior_engine(self) -> BehaviorEngine:
         """Return the managed behavior engine component."""
         return self._behavior_engine
@@ -214,10 +228,16 @@ class DoodleApplication:
             self._menu.dismiss()
         if self._quick_capture_card is not None and self._quick_capture_card.isVisible():
             self._quick_capture_card.dismiss()
+        if self._recent_captures_panel is not None and self._recent_captures_panel.isVisible():
+            self._recent_captures_panel.dismiss()
         self._window.hide()
 
     def show_interaction_menu(self) -> None:
         """Open the interaction menu adjacent to the companion window."""
+        if self._quick_capture_card is not None and self._quick_capture_card.isVisible():
+            self._quick_capture_card.dismiss()
+        if self._recent_captures_panel is not None and self._recent_captures_panel.isVisible():
+            self._recent_captures_panel.dismiss()
         self._behavior_engine.on_menu_opened()
         self._character.set_state(CharacterState.ATTENTION)
         bounds = self._window.position_manager.get_usable_screen_bounds()
@@ -236,6 +256,8 @@ class DoodleApplication:
             return
         if self._menu.isVisible():
             self._menu.dismiss()
+        if self._recent_captures_panel is not None and self._recent_captures_panel.isVisible():
+            self._recent_captures_panel.dismiss()
         self._behavior_engine.on_capture_requested()
         self._character.set_state(CharacterState.ATTENTION)
         bounds = self._window.position_manager.get_usable_screen_bounds()
@@ -250,11 +272,42 @@ class DoodleApplication:
         if self._quick_capture_card is not None and self._quick_capture_card.isVisible():
             self._quick_capture_card.dismiss()
 
+    def show_recent_captures(self, limit: int = 10) -> None:
+        """Open the Recent Captures timeline panel adjacent to the companion window."""
+        if not self._enable_quick_capture or self._recent_captures_panel is None:
+            return
+        if self._menu.isVisible():
+            self._menu.dismiss()
+        if self._quick_capture_card is not None and self._quick_capture_card.isVisible():
+            self._quick_capture_card.dismiss()
+
+        records = []
+        if self._capture_store is not None:
+            records = self._capture_store.list_recent(limit=limit)
+
+        self._behavior_engine.record_user_interaction()
+        self._behavior_engine.stop_idle_timer()
+        self._character.set_state(CharacterState.ATTENTION)
+        bounds = self._window.position_manager.get_usable_screen_bounds()
+        self._recent_captures_panel.show_captures(
+            records=records,
+            target_rect=self._window.geometry(),
+            screen_bounds=bounds,
+        )
+
+    def dismiss_recent_captures(self) -> None:
+        """Dismiss the Recent Captures panel if visible."""
+        if self._recent_captures_panel is not None and self._recent_captures_panel.isVisible():
+            self._recent_captures_panel.dismiss()
+
     def _on_character_clicked(self) -> None:
         """Slot invoked when user clicks the companion character."""
         self._behavior_engine.on_character_clicked()
         if self._quick_capture_card is not None and self._quick_capture_card.isVisible():
             self._quick_capture_card.dismiss()
+            return
+        if self._recent_captures_panel is not None and self._recent_captures_panel.isVisible():
+            self._recent_captures_panel.dismiss()
             return
         if self._menu.isVisible():
             self._menu.dismiss()
@@ -268,11 +321,15 @@ class DoodleApplication:
             self._menu.dismiss()
         if self._quick_capture_card is not None and self._quick_capture_card.isVisible():
             self._quick_capture_card.dismiss()
+        if self._recent_captures_panel is not None and self._recent_captures_panel.isVisible():
+            self._recent_captures_panel.dismiss()
 
     def _on_menu_dismissed(self) -> None:
         """Slot invoked when interaction menu is dismissed."""
         self._behavior_engine.on_menu_dismissed()
         if self._quick_capture_card is not None and self._quick_capture_card.isVisible():
+            return
+        if self._recent_captures_panel is not None and self._recent_captures_panel.isVisible():
             return
         if self._character.state == CharacterState.ATTENTION:
             self._character.set_state(CharacterState.IDLE)
@@ -281,6 +338,10 @@ class DoodleApplication:
         """Slot invoked when a menu action is requested (action boundary)."""
         normalized_id = action_id.lower()
         logger.info("Menu action requested: %s", normalized_id)
+        if normalized_id == "recent_captures":
+            self._menu.dismiss()
+            self.show_recent_captures()
+            return
         if self._enable_quick_capture and self._quick_capture_card is not None:
             capture_type_map = {
                 "idea": CaptureType.IDEA,
@@ -292,6 +353,14 @@ class DoodleApplication:
                 capture_type = capture_type_map[normalized_id]
                 self._menu.dismiss()
                 self.show_quick_capture(capture_type)
+
+    def _on_recent_captures_dismissed(self) -> None:
+        """Slot invoked when Recent Captures panel is closed/dismissed."""
+        logger.info("Recent Captures panel dismissed")
+        self._behavior_engine.record_user_interaction()
+        self._behavior_engine.start_idle_timer()
+        if self._character.state == CharacterState.ATTENTION:
+            self._character.set_state(CharacterState.IDLE)
 
     def _on_capture_saved(self, record: CaptureRecord) -> None:
         """Slot invoked when a quick capture is successfully persisted."""

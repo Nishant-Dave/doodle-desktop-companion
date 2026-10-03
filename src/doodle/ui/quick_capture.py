@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QStyledItemDelegate,
     QVBoxLayout,
     QWidget,
 )
@@ -27,6 +28,13 @@ logger = logging.getLogger(__name__)
 DEFAULT_CAPTURE_WIDTH: int = 220
 DEFAULT_CAPTURE_HEIGHT: int = 110
 DEFAULT_CAPTURE_MARGIN: int = 8
+
+
+class TypeSelectorDelegate(QStyledItemDelegate):
+    """Delegate that renders clean capture type names without chevrons in the popup list."""
+
+    def displayText(self, value: object, locale: object) -> str:
+        return str(value).replace(" ▾", "").replace("▾", "").strip()
 
 
 class QuickCaptureCard(QWidget):
@@ -97,8 +105,8 @@ class QuickCaptureCard(QWidget):
         card.setFixedSize(DEFAULT_CAPTURE_WIDTH, DEFAULT_CAPTURE_HEIGHT)
 
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(10, 8, 10, 8)
-        card_layout.setSpacing(5)
+        card_layout.setContentsMargins(12, 10, 12, 9)
+        card_layout.setSpacing(6)
 
         # Header row: Type selector pill dropdown + close button
         header_layout = QHBoxLayout()
@@ -107,6 +115,7 @@ class QuickCaptureCard(QWidget):
 
         self._type_combo = QComboBox(card)
         self._type_combo.setObjectName("captureTypeSelector")
+        self._type_combo.setItemDelegate(TypeSelectorDelegate(self._type_combo))
         self._type_combo.addItem("IDEA ▾", CaptureType.IDEA)
         self._type_combo.addItem("JOURNAL ▾", CaptureType.JOURNAL)
         self._type_combo.addItem("MOOD ▾", CaptureType.MOOD)
@@ -117,12 +126,13 @@ class QuickCaptureCard(QWidget):
 
         header_layout.addStretch()
 
-        close_btn = QPushButton("×", card)
-        close_btn.setObjectName("closeButton")
-        close_btn.setFixedSize(18, 18)
-        close_btn.setToolTip("Dismiss (Esc)")
-        close_btn.clicked.connect(self.cancel)
-        header_layout.addWidget(close_btn)
+        self._close_btn = QPushButton("×", card)
+        self._close_btn.setObjectName("closeButton")
+        self._close_btn.setFixedSize(18, 18)
+        self._close_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._close_btn.setToolTip("Dismiss (Esc)")
+        self._close_btn.clicked.connect(self.cancel)
+        header_layout.addWidget(self._close_btn)
 
         card_layout.addLayout(header_layout)
 
@@ -141,6 +151,9 @@ class QuickCaptureCard(QWidget):
         self._hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         card_layout.addWidget(self._hint_label)
 
+        # Explicit tab order between type selector and input
+        QWidget.setTabOrder(self._type_combo, self._input)
+
         outer_layout.addWidget(card)
         self._apply_styles()
 
@@ -148,23 +161,23 @@ class QuickCaptureCard(QWidget):
         """Apply compact dark translucent stylesheet matching InteractionMenu."""
         self.setStyleSheet("""
             QFrame#captureCard {
-                background-color: rgba(28, 30, 38, 245);
+                background-color: rgba(28, 30, 38, 240);
                 border: 1px solid rgba(255, 255, 255, 35);
                 border-radius: 12px;
             }
             QComboBox#captureTypeSelector {
-                background-color: rgba(255, 255, 255, 14);
+                background-color: rgba(255, 255, 255, 12);
                 color: #e2e4ee;
-                border: 1px solid rgba(255, 255, 255, 24);
+                border: 1px solid rgba(255, 255, 255, 20);
                 border-radius: 6px;
-                padding: 2px 6px;
+                padding: 3px 8px;
                 font-size: 10px;
                 font-weight: 700;
                 letter-spacing: 0.5px;
-                min-width: 90px;
+                min-width: 82px;
             }
             QComboBox#captureTypeSelector:hover {
-                background-color: rgba(255, 255, 255, 24);
+                background-color: rgba(255, 255, 255, 22);
                 border-color: rgba(255, 255, 255, 45);
             }
             QComboBox#captureTypeSelector::drop-down {
@@ -176,45 +189,49 @@ class QuickCaptureCard(QWidget):
                 color: #e2e4ee;
                 border: 1px solid rgba(255, 255, 255, 35);
                 border-radius: 6px;
-                selection-background-color: rgba(255, 255, 255, 30);
+                selection-background-color: rgba(255, 255, 255, 25);
                 selection-color: #ffffff;
                 outline: none;
-                padding: 2px;
+                padding: 3px;
             }
             QPushButton#closeButton {
                 background-color: transparent;
-                color: rgba(255, 255, 255, 120);
+                color: rgba(210, 210, 225, 120);
                 border: none;
+                border-radius: 4px;
                 font-size: 14px;
                 font-weight: bold;
                 padding: 0;
             }
             QPushButton#closeButton:hover {
+                background-color: rgba(255, 255, 255, 20);
                 color: #ffffff;
             }
             QLineEdit#captureInput {
                 background-color: rgba(255, 255, 255, 12);
                 color: #ffffff;
-                border: 1px solid rgba(255, 255, 255, 22);
+                border: 1px solid rgba(255, 255, 255, 20);
                 border-radius: 6px;
-                padding: 4px 8px;
+                padding: 5px 8px;
                 font-size: 11px;
+                selection-background-color: rgba(140, 160, 255, 120);
             }
             QLineEdit#captureInput:focus {
-                border: 1px solid rgba(130, 160, 255, 180);
+                border: 1px solid rgba(135, 165, 255, 175);
                 background-color: rgba(255, 255, 255, 18);
             }
             QLabel#hintLabel {
-                color: rgba(200, 205, 220, 140);
+                color: rgba(180, 185, 205, 150);
                 font-size: 9px;
+                letter-spacing: 0.2px;
             }
             QLabel#hintLabel[state="error"] {
-                color: rgba(255, 120, 120, 230);
-                font-weight: bold;
+                color: rgba(250, 130, 130, 230);
+                font-weight: 600;
             }
             QLabel#hintLabel[state="success"] {
-                color: rgba(120, 230, 150, 230);
-                font-weight: bold;
+                color: rgba(120, 230, 155, 230);
+                font-weight: 600;
             }
         """)
 
@@ -313,7 +330,7 @@ class QuickCaptureCard(QWidget):
         """Validate input and persist capture via CaptureStore."""
         text = self._input.text().strip()
         if not text:
-            self._show_error("Please enter some text.")
+            self._show_error("Please enter some text first.")
             return
 
         capture_type = self.selected_type()
