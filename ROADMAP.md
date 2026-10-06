@@ -1,166 +1,156 @@
 # Doodle — Roadmap
 
-**Status:** Draft for architecture review
+**Status:** Architecture v2 Milestone Evolution (Companion Core)  
+**Baseline Date:** 2026-10-06  
+**Reference Specification:** [docs/ARCHITECTURE_V2_COMPANION_CORE.md](file:///d:/PYTHON/doodle/doodle-desktop-companion/docs/ARCHITECTURE_V2_COMPANION_CORE.md)
 
-## Phase 0 — Product and Architecture Baseline
+---
 
+## Historical Foundation Phases (Milestone 1 — Complete)
+
+### Phase 0 — Product and Architecture Baseline
 **Goal:** Establish one source of truth before coding.
-
 - [x] Consolidate product vision.
 - [x] Define desktop-first MVP.
 - [x] Define explicit V1 exclusions.
 - [x] Propose architecture boundaries.
 - [x] Identify first implementation milestone.
-- [ ] Approve architecture decisions marked for review.
-- [ ] Create initial repository structure after approval.
+- [x] Approve architecture decisions marked for review.
+- [x] Create initial repository structure after approval.
 
-## Phase 1 — Panda Desktop Shell
-
+### Phase 1 — Panda Desktop Shell
 **Goal:** A stable Windows application with a living panda.
+- [x] Python project skeleton.
+- [x] PySide6 application startup.
+- [x] Transparent frameless window.
+- [x] Always-on-top behavior.
+- [x] Panda asset rendering.
+- [x] Basic animation controller.
+- [x] Idle/sleep/sit/attention animations.
+- [x] Dragging.
+- [x] Position persistence.
+- [x] System tray.
+- [x] Clean startup/shutdown.
 
-Deliverables:
-
-1. Python project skeleton.
-2. PySide6 application startup.
-3. Transparent frameless window.
-4. Always-on-top behavior.
-5. Panda asset rendering.
-6. Basic animation controller.
-7. Idle/sleep/sit/attention animations.
-8. Dragging.
-9. Position persistence.
-10. System tray.
-11. Clean startup/shutdown.
-
-**Validation:** Leave the panda running during normal desktop use for an extended session without the application becoming intrusive or unstable.
-
-## Phase 2 — Character Interaction
-
+### Phase 2 — Character Interaction
 **Goal:** Make Doodle feel interactive rather than decorative.
+- [x] click/tap character
+- [x] compact interaction menu
+- [x] hover/click feedback where useful
+- [x] basic character reactions
+- [x] manual hide/show
+- [x] configurable idle behavior
+- [x] simple local settings
 
-Deliverables:
+### Phase 3 — Quick Capture
+**Goal:** In-place capture and lightweight journal timeline.
+- [x] journal capture
+- [x] mood capture
+- [x] idea capture
+- [x] quick “remember this” capture
+- [x] timestamped local storage (SQLite CaptureStore)
+- [x] simple day timeline & recent captures viewer
 
-- click/tap character
-- compact interaction menu
-- hover/click feedback where useful
-- basic character reactions
-- manual hide/show
-- configurable idle behavior
-- simple local settings
+---
 
-**Validation:** Interaction should feel natural and require very little effort.
+## Revised Milestone Structure (Architecture v2)
 
-## Phase 3 — Quick Capture
-
-**Goal:** Test the strongest original product hypothesis.
-
-Add:
-
-- journal capture
-- mood capture
-- idea capture
-- quick “remember this” capture
-- timestamped local storage
-- simple day timeline
-
-**Validation:** Capture should take only a few seconds and should feel easier than opening a separate journal application.
-
-## Phase 4 — Rule-Based Context
-
-**Goal:** Make Doodle context-aware without AI.
-
-Potential signals:
-
-- active application
-- idle time
-- typing/activity
-- fullscreen state
-- time of day
-- configurable focus periods
-
-Potential behaviors:
-
-- reduce interruptions while typing
-- quiet mode during fullscreen
-- focus mode
-- break reminders
-- bedtime behavior
-
-**Validation:** Doodle should become more useful without becoming more annoying.
-
-## Phase 5 — Calendar / Task Awareness
-
-Add adapters for selected external systems.
-
-Principle:
+Following completion of the Foundation milestone and the Architecture v2 evaluation, the roadmap evolves to prioritize **Companion Core** before deeper context or external integrations:
 
 ```text
-External service
+FOUNDATION (Complete)
       ↓
-Adapter
+COMPANION CORE (Next Active Phase)
       ↓
-Normalized event
+CONTEXT
       ↓
-Behavior engine
+COMPANION STATE
+      ↓
+MEMORY
+      ↓
+UTILITY
+      ↓
+AI COMPANION
+      ↓
+PRODUCTIZATION
 ```
 
-No external service should become a core dependency.
+### 1. FOUNDATION — COMPLETE
+- Desktop shell (transparent, frameless window, system tray, drag mechanics)
+- Character rendering & frame-based animation controller
+- Interactive menu & click reactions
+- Deterministic behavior engine & initial idle rotation
+- Mood foundation (`Mood` enum & behavioral preference mapping)
+- Quick Capture system (note/mood/idea input dialog & SQLite persistence)
+- Capture timeline & recent captures viewer
 
-## Phase 6 — Browser Companion
+### 2. COMPANION CORE — NEXT ACTIVE PHASE
+- `Activity` first-class domain model & lifecycle definitions
+- Decision layer refinement (candidate generation & intent selection)
+- Activity execution boundary (`ActivityExecutor`)
+- Animation/activity transitions & interruptibility foundation
+- Movement & spatial relocation primitives (walking across screen bounds)
+- Richer autonomous living behaviors (look around, yawn, curious, sit, sleep)
+- Environmental interaction foundation (screen edge awareness)
 
-Build a browser extension only after the desktop behavior model is stable.
+#### Immediate Next Implementation Sequence (Planning Markers Only)
+- **Task 21 — Activity domain model:** Base classes, lifecycle states, and protocol definitions.
+- **Task 22 — Decision → Activity integration:** Behavior engine emits semantic activity candidates.
+- **Task 23 — Activity execution boundary:** `ActivityExecutor` managing tick progression and callbacks.
+- **Task 24 — Animation/activity transition foundation:** Smooth posture transitions and interrupt points.
+- **Task 25 — Movement primitives:** Screen coordinate translation, velocity, and edge clamping.
+- **Task 26 — Richer living behavior:** Assembled multi-phase activities.
 
-Potential capabilities:
+*(Note: Tasks 21–26 are planning labels only; implementation has not begun.)*
 
-- website/session awareness
-- browsing-session duration
-- social-media context
-- browser-specific DND
-- communication with desktop application
+### 3. CONTEXT
+- Foreground application detection & classification
+- User activity and idle time detection
+- Fullscreen mode detection & autonomous behavior suppression
+- Time of day & temporal rhythms
+- Focus mode & quiet period management
 
-## Phase 7 — Self-Awareness Layer
+### 4. COMPANION STATE
+- Personality traits & baseline demeanor
+- Needs modeling (rest, stimulation, socialization)
+- Richer dynamic mood transitions
+- Preference modeling & user affinity tracking
+- Relationship continuity signals
 
-Potential capabilities:
+### 5. MEMORY
+- Explicit memories storage & retrieval
+- Episodic interaction history
+- User preference recall
+- Longitudinal habit & pattern recognition
+- Context-aware timeline integration
 
-- mood timeline
-- journal timeline
-- screen-time patterns
-- weekly reflection
-- recurring pattern summaries
-- user-controlled insights
+### 6. UTILITY
+- Lightweight calendar awareness
+- Task & reminder alerts through companion expressions
+- Browser companion bridge
+- Quick contextual actions
 
-## Phase 8 — AI Companion
+### 7. AI COMPANION
+- Natural language companion conversation
+- Journal summarization & empathetic reflection
+- Cognitive reasoning for proactive suggestions
+- Memory-augmented dialogue
+- Adaptive personality expression
 
-Potential capabilities:
+### 8. PRODUCTIZATION
+- Customization options (colors, accessories, themes)
+- Multi-character architecture (if justified by user demand)
+- Windows installer & auto-updater
+- Comprehensive onboarding & settings experience
+- Optional end-to-end encrypted cloud sync
 
-- natural-language conversation
-- journal summarization
-- reflection prompts
-- personal pattern discovery
-- adaptive personality
-- context-aware suggestions
-
-AI should augment the existing system rather than replace the deterministic behavior engine.
-
-## Phase 9 — Distribution and Productization
-
-Only after the core product proves useful:
-
-- Windows installer
-- update strategy
-- crash reporting if needed
-- onboarding
-- settings UX
-- asset/content pipeline
-- optional accounts/cloud sync
-- monetization experiments
+---
 
 ## Content Creation Track
 
 Doodle should also be developed as a demonstrable build-in-public project.
 
 Potential content themes:
-
 - “I built a tiny panda that lives on my desktop.”
 - “I made my panda learn when to stay quiet.”
 - “My panda now knows when I'm in a meeting.”
@@ -171,10 +161,12 @@ Potential content themes:
 
 Content should document real product progress rather than drive architecture decisions.
 
+---
+
 ## Current Next Step
 
-Do not begin Phase 1 until the architecture review is approved.
+Architecture v2 (Companion Core) specification is approved.
 
-After approval:
+**Next Active Phase:** Companion Core (Tasks 21–26).  
+Implementation will begin with Task 21 (Activity Domain Model) upon scheduling.
 
-**First coding milestone = Panda Desktop Shell.**

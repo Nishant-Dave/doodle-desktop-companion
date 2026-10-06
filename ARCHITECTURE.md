@@ -1,8 +1,9 @@
 # Doodle — Architecture
 
-**Status:** Draft for architecture review  
+**Status:** Architecture v1 (Implemented Baseline) / Architecture v2 Approved (Companion Core)  
 **Platform:** Windows desktop first  
-**Implementation:** Python + PySide6
+**Implementation:** Python + PySide6  
+**V2 Architecture Specification:** [docs/ARCHITECTURE_V2_COMPANION_CORE.md](file:///d:/PYTHON/doodle/doodle-desktop-companion/docs/ARCHITECTURE_V2_COMPANION_CORE.md)
 
 ## 1. Architectural Goal
 
@@ -396,3 +397,31 @@ System tray
 ```
 
 No context engine, AI, browser extension, calendar, journal database, or health logic should be added in this milestone.
+
+## 18. Architectural Evolution — Architecture v2 (Companion Core)
+
+Following the completion of the foundation milestone and an in-depth companion architecture review, the project has approved the Architecture v2 (Companion Core) evolution.
+
+**Reference Specification:** [docs/ARCHITECTURE_V2_COMPANION_CORE.md](file:///d:/PYTHON/doodle/doodle-desktop-companion/docs/ARCHITECTURE_V2_COMPANION_CORE.md)  
+**Status:** Approved Architectural Direction (Implementation pending).
+
+### Central Principle
+
+> **"Behavior should choose what Doodle wants to do, an Activity should describe what Doodle is doing, and the Character/Animation system should figure out how to physically perform it."**
+
+### Core Model Evolution
+
+- **Architecture v1 (Implemented Baseline):**  
+  `EVENT → STATE/CONTEXT → DECISION → ACTION → ANIMATION`  
+  Implemented as `Event → BehaviorEngine → BehaviorAction → Character → AnimationController`.
+- **Architecture v2 (Approved Target):**  
+  `EVENT / CONTEXT → WORLD + COMPANION STATE → DECISION → COMPANION INTENT → ACTIVITY → EXECUTION → MOVEMENT + ANIMATION + UI`
+
+### Key Architectural Shifts
+
+1. **Activity as a First-Class Concept (D-011):** Behaviors are encapsulated in an `Activity` domain model with lifecycle management (`on_start`, `on_tick`, `on_interrupt`, `on_finish`) rather than direct animation calls.
+2. **Decoupled CharacterState (D-012):** `CharacterState` remains strictly physical/postural. It must never become a universal cognitive state machine.
+3. **Execution Layer Boundary (D-013):** An independent `ActivityExecutor` coordinates spatial movement, animation clips, micro-expressions, interruptions, and safe recovery.
+4. **Hard AI Boundary (D-014):** AI policies operate solely at the semantic decision level (intent proposal) and never directly control animation frames or window coordinates.
+5. **Incremental Non-Destructive Migration:** Existing components (`BehaviorEngine`, `Character`, `AnimationController`, `CompanionWindow`) remain operational throughout migration, evolving via additive interfaces rather than rewrites.
+
