@@ -16,7 +16,7 @@ This module is strictly independent of PySide6, UI, and animation systems.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Optional, Protocol, runtime_checkable
 
 from doodle.activity.model import Activity
 from doodle.activity.types import ActivityLifecycleState
@@ -26,6 +26,32 @@ logger = logging.getLogger(__name__)
 
 class ActivityExecutionError(Exception):
     """Raised when an invalid or prohibited activity execution lifecycle operation occurs."""
+
+
+@runtime_checkable
+class ActivityExecutionTarget(Protocol):
+    """Protocol for targets capable of physically realizing an Activity.
+
+    Per Architecture v2:
+    - ActivityExecutor manages lifecycle transitions.
+    - ActivityExecutionTarget receives commands to physically begin,
+      interrupt, or cancel realization of an Activity.
+    - Natural completion is reported back toward the executor via the
+      composition/integration boundary (e.g., Qt animation signals),
+      not commanded downward to the target.
+    """
+
+    def perform_activity(self, activity: Activity) -> None:
+        """Physically begin realizing the given activity."""
+        ...
+
+    def interrupt_activity(self, activity: Activity) -> None:
+        """Physically abort the active activity and safely recover to a neutral state."""
+        ...
+
+    def cancel_activity(self, activity: Activity) -> None:
+        """Physically abort the active activity immediately without graceful recovery."""
+        ...
 
 
 class ActivityExecutor:
@@ -45,8 +71,14 @@ class ActivityExecutor:
     - Attempting to complete, interrupt, or cancel when no Activity is executing raises ActivityExecutionError.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, target: Optional[ActivityExecutionTarget] = None) -> None:
         self._current_activity: Optional[Activity] = None
+        self._target: Optional[ActivityExecutionTarget] = target
+
+    @property
+    def target(self) -> Optional[ActivityExecutionTarget]:
+        """Return the attached activity execution target, if any."""
+        return self._target
 
     @property
     def current_activity(self) -> Optional[Activity]:
@@ -103,6 +135,8 @@ class ActivityExecutor:
 
         activity.lifecycle_state = ActivityLifecycleState.RUNNING
         self._current_activity = activity
+        if self._target is not None:
+            self._target.perform_activity(activity)
         logger.debug("Started executing activity: %s", activity.activity_id)
         return activity
 
@@ -129,6 +163,8 @@ class ActivityExecutor:
         completed = self._current_activity
         completed.lifecycle_state = ActivityLifecycleState.COMPLETED
         self._current_activity = None
+        # Note: complete() does NOT call target; completion notification flows
+        # from physical realization upward via the composition boundary.
         logger.debug("Completed activity: %s", completed.activity_id)
         return completed
 
@@ -161,6 +197,8 @@ class ActivityExecutor:
         interrupted = self._current_activity
         interrupted.lifecycle_state = ActivityLifecycleState.INTERRUPTED
         self._current_activity = None
+        if self._target is not None:
+            self._target.interrupt_activity(interrupted)
         logger.debug("Interrupted activity: %s", interrupted.activity_id)
         return interrupted
 
@@ -190,6 +228,8 @@ class ActivityExecutor:
         cancelled = self._current_activity
         cancelled.lifecycle_state = ActivityLifecycleState.CANCELLED
         self._current_activity = None
+        if self._target is not None:
+            self._target.cancel_activity(cancelled)
         logger.debug("Cancelled activity: %s", cancelled.activity_id)
         return cancelled
 

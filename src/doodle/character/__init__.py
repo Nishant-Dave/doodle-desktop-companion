@@ -14,6 +14,7 @@ from doodle.character.mood import (
     Mood,
     MoodManager,
 )
+from doodle.character.performer import CharacterActivityPerformer
 from doodle.character.state import CharacterState
 
 __all__ = [
@@ -21,6 +22,7 @@ __all__ = [
     "AnimationController",
     "AnimationSpec",
     "Character",
+    "CharacterActivityPerformer",
     "CharacterState",
     "DEFAULT_MOOD_DECAY_S",
     "DEFAULT_SLEEPY_THRESHOLD_S",
