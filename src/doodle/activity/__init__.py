@@ -8,11 +8,14 @@ Establishes Activity as a first-class domain concept per Architecture v2:
 
 from __future__ import annotations
 
+from doodle.activity.executor import ActivityExecutionError, ActivityExecutor
 from doodle.activity.model import Activity, reset_activity_id_counter
 from doodle.activity.types import ActivityLifecycleState, ActivityType
 
 __all__ = [
     "Activity",
+    "ActivityExecutionError",
+    "ActivityExecutor",
     "ActivityLifecycleState",
     "ActivityType",
     "reset_activity_id_counter",
