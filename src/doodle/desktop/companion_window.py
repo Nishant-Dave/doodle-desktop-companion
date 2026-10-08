@@ -193,6 +193,16 @@ class CompanionWindow(QWidget):
         self._position_manager.set_position(default_pos)
         self.move(default_pos)
 
+    def move_to(self, position: QPoint) -> None:
+        """Programmatically reposition window, clamped to usable screen bounds.
+
+        Autonomous movement helper that avoids invoking user-drag handlers or persistence.
+        """
+        clamped_pos = self._position_manager.set_position(position)
+        if clamped_pos != self.pos():
+            self.move(clamped_pos)
+            self.character_moved.emit(clamped_pos)
+
     def showEvent(self, event: QShowEvent) -> None:
         """Handle window shown: start cursor proximity monitor."""
         super().showEvent(event)

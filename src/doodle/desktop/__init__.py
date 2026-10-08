@@ -7,6 +7,7 @@ from doodle.desktop.movement import (
     MovementPrimitive,
     MovementStatus,
 )
+from doodle.desktop.performer import DesktopActivityPerformer
 from doodle.desktop.positioning import (
     PositionManager,
     calculate_default_position,
@@ -30,6 +31,7 @@ __all__ = [
     "DEFAULT_MOVEMENT_SPEED_PX_PER_S",
     "DEFAULT_PROXIMITY_CHECK_INTERVAL_MS",
     "DEFAULT_PROXIMITY_MARGIN",
+    "DesktopActivityPerformer",
     "DoodleTrayIcon",
     "MovementDirection",
     "MovementPrimitive",
