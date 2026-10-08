@@ -6,10 +6,12 @@ import logging
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, Optional, Sequence, Set, Union
+from typing import Any, Callable, Optional, Sequence, Set, Union
 
+from doodle.activity import Activity, ActivityType
 from doodle.character.mood import Mood
 from doodle.character.state import CharacterState
+from doodle.context.model import DesktopContext
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +32,7 @@ EVENT_CURSOR_ENTERED_PROXIMITY: str = "CURSOR_ENTERED_PROXIMITY"
 EVENT_CAPTURE_REQUESTED: str = "CAPTURE_REQUESTED"
 EVENT_CAPTURE_SAVED: str = "CAPTURE_SAVED"
 EVENT_CAPTURE_CANCELLED: str = "CAPTURE_CANCELLED"
+EVENT_CONTEXT_CHANGED: str = "CONTEXT_CHANGED"
 
 # Action type representations
 ACTION_CHANGE_STATE: str = "CHANGE_STATE"
@@ -129,6 +132,69 @@ MOOD_PREFERRED_BEHAVIORS: dict[Mood, tuple[IdleBehavior, ...]] = {
         IdleBehavior.YAWN,
     ),
 }
+ 
+# Semantic mapping from IdleBehavior to ActivityType
+IDLE_BEHAVIOR_TO_ACTIVITY_TYPE: dict[IdleBehavior, ActivityType] = {
+    IdleBehavior.STRETCH: ActivityType.STRETCH,
+    IdleBehavior.NAP: ActivityType.SLEEP,
+    IdleBehavior.LOOK_AROUND: ActivityType.LOOK_AROUND,
+    IdleBehavior.PLAYFUL_DANCE: ActivityType.PLAY,
+    IdleBehavior.SELF_AMUSEMENT: ActivityType.PLAY,
+}
+
+# Semantic mapping from CharacterState to ActivityType
+CHARACTER_STATE_TO_ACTIVITY_TYPE: dict[CharacterState, ActivityType] = {
+    CharacterState.STRETCH: ActivityType.STRETCH,
+    CharacterState.SLEEP: ActivityType.SLEEP,
+    CharacterState.SIT: ActivityType.REST,
+}
+
+# Semantic vocabulary mapping from canonical string choices to ActivityType
+SEMANTIC_CHOICE_TO_ACTIVITY_TYPE: dict[str, ActivityType] = {
+    "REST": ActivityType.REST,
+    "WALK": ActivityType.WALK,
+    "LOOK_AROUND": ActivityType.LOOK_AROUND,
+    "STRETCH": ActivityType.STRETCH,
+    "SLEEP": ActivityType.SLEEP,
+    "PLAY": ActivityType.PLAY,
+}
+
+
+def activity_type_for_behavior(
+    behavior: Union[IdleBehavior, CharacterState, str, None],
+) -> Optional[ActivityType]:
+    """Return the corresponding ActivityType for a behavior concept, or None if presentation-specific."""
+    if behavior is None:
+        return None
+    if isinstance(behavior, IdleBehavior):
+        return IDLE_BEHAVIOR_TO_ACTIVITY_TYPE.get(behavior)
+    if isinstance(behavior, CharacterState):
+        return CHARACTER_STATE_TO_ACTIVITY_TYPE.get(behavior)
+    if isinstance(behavior, str):
+        normalized = behavior.upper().strip()
+        if normalized in SEMANTIC_CHOICE_TO_ACTIVITY_TYPE:
+            return SEMANTIC_CHOICE_TO_ACTIVITY_TYPE[normalized]
+        try:
+            return IDLE_BEHAVIOR_TO_ACTIVITY_TYPE.get(IdleBehavior(normalized))
+        except ValueError:
+            pass
+        try:
+            return CHARACTER_STATE_TO_ACTIVITY_TYPE.get(CharacterState(normalized))
+        except ValueError:
+            pass
+    return None
+
+
+def create_activity_for_behavior(
+    behavior: Union[IdleBehavior, CharacterState, str, None],
+    metadata: Optional[dict[str, Any]] = None,
+) -> Optional[Activity]:
+    """Create a declarative Activity for a behavior concept, or None if presentation-specific."""
+    act_type = activity_type_for_behavior(behavior)
+    if act_type is None:
+        return None
+    return Activity(activity_type=act_type, metadata=metadata or {})
+
 
 # Conceptual behavioral tiers (Milestone 2 Task 17)
 TIER_1_MICRO_LIFE: tuple[str, ...] = ("blink", "breathing", "idle")
@@ -221,15 +287,16 @@ def get_available_behaviors(
 
 def action_for_idle_behavior(behavior: IdleBehavior) -> BehaviorAction:
     """Construct the high-level BehaviorAction for an IdleBehavior."""
+    activity = create_activity_for_behavior(behavior)
     if behavior in IDLE_BEHAVIOR_STATES:
         state = IDLE_BEHAVIOR_STATES[behavior]
-        return BehaviorAction.change_state(state, loop=False)
+        return BehaviorAction.change_state(state, loop=False, activity=activity)
 
     anim_name = IDLE_BEHAVIOR_ANIMATIONS.get(behavior)
     if anim_name:
-        return BehaviorAction.play_animation(anim_name, loop=False)
+        return BehaviorAction.play_animation(anim_name, loop=False, activity=activity)
 
-    return BehaviorAction.noop()
+    return BehaviorAction.noop(activity=activity)
 
 
 class IdleSelectionPolicy:
@@ -400,29 +467,37 @@ class BehaviorAction:
     state: Optional[CharacterState] = None
     animation_name: Optional[str] = None
     loop: Optional[bool] = None
+    activity: Optional[Activity] = None
 
     @classmethod
     def change_state(
         cls,
         state: CharacterState,
         loop: Optional[bool] = None,
+        activity: Optional[Activity] = None,
     ) -> BehaviorAction:
         """Create a state transition action for the character."""
-        return cls(action_type=ACTION_CHANGE_STATE, state=state, loop=loop)
+        return cls(action_type=ACTION_CHANGE_STATE, state=state, loop=loop, activity=activity)
 
     @classmethod
     def play_animation(
         cls,
         animation_name: str,
         loop: Optional[bool] = None,
+        activity: Optional[Activity] = None,
     ) -> BehaviorAction:
         """Create an animation playback action for the character."""
-        return cls(action_type=ACTION_PLAY_ANIMATION, animation_name=animation_name, loop=loop)
+        return cls(action_type=ACTION_PLAY_ANIMATION, animation_name=animation_name, loop=loop, activity=activity)
 
     @classmethod
-    def noop(cls) -> BehaviorAction:
+    def noop(cls, activity: Optional[Activity] = None) -> BehaviorAction:
         """Create a no-operation action."""
-        return cls(action_type=ACTION_NOOP)
+        return cls(action_type=ACTION_NOOP, activity=activity)
+
+    @property
+    def has_activity(self) -> bool:
+        """Return True if this action embodies a semantic companion Activity."""
+        return self.activity is not None
 
     def __str__(self) -> str:
         if self.action_type == ACTION_CHANGE_STATE and self.state is not None:
@@ -432,6 +507,24 @@ class BehaviorAction:
             loop_suffix = f", loop={self.loop}" if self.loop is not None else ""
             return f"PLAY_ANIMATION({self.animation_name}{loop_suffix})"
         return "NOOP"
+
+
+def action_for_activity(activity: Activity) -> BehaviorAction:
+    """Compatibility bridge: map a semantic Activity to legacy BehaviorAction presentation."""
+    if activity.activity_type == ActivityType.REST:
+        return BehaviorAction.change_state(CharacterState.SIT, loop=False, activity=activity)
+    if activity.activity_type == ActivityType.STRETCH:
+        return BehaviorAction.change_state(CharacterState.STRETCH, loop=False, activity=activity)
+    if activity.activity_type == ActivityType.SLEEP:
+        return BehaviorAction.change_state(CharacterState.SLEEP, loop=False, activity=activity)
+    if activity.activity_type == ActivityType.LOOK_AROUND:
+        return BehaviorAction.play_animation("look_around", loop=False, activity=activity)
+    if activity.activity_type == ActivityType.PLAY:
+        return BehaviorAction.play_animation("playful", loop=False, activity=activity)
+    if activity.activity_type == ActivityType.WALK:
+        # WALK has no dedicated animation asset in foundation assets, safely falls back to IDLE
+        return BehaviorAction.change_state(CharacterState.IDLE, loop=False, activity=activity)
+    return BehaviorAction.noop(activity=activity)
 
 
 @dataclass
@@ -451,6 +544,7 @@ class BehaviorContext:
     available_behaviors: Optional[Sequence[IdleBehavior]] = None
     policy: Optional[IdleSelectionPolicy] = None
     mood: Mood = Mood.NEUTRAL
+    desktop_context: Optional[DesktopContext] = None
 
 
 def check_autonomous_eligibility(
@@ -459,7 +553,8 @@ def check_autonomous_eligibility(
 ) -> tuple[bool, str]:
     """Check whether autonomous behavior execution is currently eligible.
 
-    Verifies the 8 standard blocking conditions:
+    Verifies blocking conditions:
+    0. Is autonomous behavior suppressed by external desktop context (e.g., fullscreen)?
     1. Is Doodle visible?
     2. Is Doodle currently interacting with the user?
     3. Is an animation already playing?
@@ -472,6 +567,10 @@ def check_autonomous_eligibility(
     Returns:
         (is_eligible: bool, reason: str)
     """
+    # 0. Is autonomous behavior suppressed by external desktop context (e.g., fullscreen)?
+    if context.desktop_context is not None and context.desktop_context.is_quiet_suppressed:
+        return False, "fullscreen_quiet_mode_active"
+
     # 1. Is Doodle visible?
     if not context.is_visible:
         return False, "hidden"
@@ -669,6 +768,10 @@ class IdleBehaviorRules:
                 and context.current_state == CharacterState.IDLE
                 and context.current_animation in (None, "idle")
             ):
+                # Suppress autonomous idle behavior when desktop is in quiet mode (e.g. fullscreen)
+                if context.desktop_context is not None and context.desktop_context.is_quiet_suppressed:
+                    return BehaviorAction.noop()
+
                 active_policy = self._policy or context.policy
                 if active_policy is not None:
                     # Check rich autonomous eligibility (quiet periods, recent interaction, etc.)
@@ -691,12 +794,16 @@ class IdleBehaviorRules:
                     return BehaviorAction.noop()
                 next_state = self._idle_cycle[self._cycle_index]
                 self._cycle_index = (self._cycle_index + 1) % len(self._idle_cycle)
-                return BehaviorAction.change_state(next_state, loop=False)
+                activity = create_activity_for_behavior(next_state)
+                return BehaviorAction.change_state(next_state, loop=False, activity=activity)
 
             return BehaviorAction.noop()
 
         # 6. Proximity awareness: subtle reaction when cursor crosses into proximity zone
         if normalized_event == EVENT_CURSOR_ENTERED_PROXIMITY:
+            if context.desktop_context is not None and context.desktop_context.is_quiet_suppressed:
+                return BehaviorAction.noop()
+
             now = (
                 context.current_time_s
                 if context.current_time_s is not None
@@ -714,7 +821,24 @@ class IdleBehaviorRules:
                 return BehaviorAction.play_animation("curious", loop=False)
             return BehaviorAction.noop()
 
-        # 7. All other, unhandled, or unknown events are safely ignored
+        # 7. Context changed notification (boundary event)
+        if normalized_event == EVENT_CONTEXT_CHANGED:
+            return BehaviorAction.noop()
+
+        # 8. All other, unhandled, or unknown events are safely ignored
         logger.debug("Unhandled or ignored behavior event: %s", normalized_event)
         return BehaviorAction.noop()
+
+    def decide_activity(
+        self,
+        event: str,
+        context: BehaviorContext,
+        **kwargs,
+    ) -> Optional[Activity]:
+        """Evaluate an incoming event against deterministic rules and return the semantic Activity, if any.
+
+        This represents the pure Decision -> Activity boundary without triggering physical execution.
+        """
+        action = self.evaluate(event, context, **kwargs)
+        return action.activity
 

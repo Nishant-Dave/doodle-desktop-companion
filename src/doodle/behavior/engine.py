@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from PySide6.QtCore import QObject, QPoint, QTimer, Signal
 
+from doodle.activity import Activity
 from doodle.behavior.rules import (
     ACTION_CHANGE_STATE,
     ACTION_NOOP,
@@ -20,6 +21,7 @@ from doodle.behavior.rules import (
     EVENT_CAPTURE_REQUESTED,
     EVENT_CAPTURE_SAVED,
     EVENT_CHARACTER_CLICKED,
+    EVENT_CONTEXT_CHANGED,
     EVENT_CURSOR_ENTERED_PROXIMITY,
     EVENT_DRAG_RELEASED,
     EVENT_DRAG_STARTED,
@@ -37,6 +39,10 @@ from doodle.behavior.rules import (
 from doodle.character.character import Character
 from doodle.character.mood import Mood, MoodManager
 from doodle.character.state import CharacterState
+
+if TYPE_CHECKING:
+    from doodle.context.model import DesktopContext
+    from doodle.context.sampler import ContextSampler
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +62,7 @@ class BehaviorEngine(QObject):
     # Signals
     action_executed = Signal(object)  # Emits BehaviorAction
     idle_timeout = Signal()            # Emitted whenever idle interval expires
+    activity_decided = Signal(object) # Emits Activity when an Activity is decided
 
     def __init__(
         self,
@@ -65,6 +72,7 @@ class BehaviorEngine(QObject):
         quiet_period_ms: int = DEFAULT_QUIET_PERIOD_MS,
         policy: Optional[IdleSelectionPolicy] = None,
         mood_manager: Optional[MoodManager] = None,
+        context_sampler: Optional[ContextSampler] = None,
         time_provider: Optional[Callable[[], float]] = None,
         parent: Optional[QObject] = None,
     ) -> None:
@@ -73,7 +81,9 @@ class BehaviorEngine(QObject):
         self._rules: IdleBehaviorRules = rules or IdleBehaviorRules()
         self._idle_interval_ms: int = max(1, idle_interval_ms)
         self._quiet_period_ms: int = max(0, quiet_period_ms)
+        self._context_sampler: Optional[ContextSampler] = context_sampler
         self._time_provider: Callable[[], float] = time_provider or time.monotonic
+        self._last_activity: Optional[Activity] = None
 
         # Initialize mood manager and sync initial character mood
         self._mood_manager: MoodManager = (
@@ -139,6 +149,15 @@ class BehaviorEngine(QObject):
     def policy(self, value: Optional[IdleSelectionPolicy]) -> None:
         self._policy = value
         self._rules.policy = value
+
+    @property
+    def context_sampler(self) -> Optional[ContextSampler]:
+        """Return the attached context sampler coordinator, if any."""
+        return self._context_sampler
+
+    @context_sampler.setter
+    def context_sampler(self, value: Optional[ContextSampler]) -> None:
+        self._context_sampler = value
 
     @property
     def time_provider(self) -> Callable[[], float]:
@@ -240,6 +259,39 @@ class BehaviorEngine(QObject):
             and state_is_idle
         )
 
+    @property
+    def last_activity(self) -> Optional[Activity]:
+        """Return the most recently decided semantic Activity, if any."""
+        return self._last_activity
+
+    def decide_activity(self, event: str, **kwargs) -> Optional[Activity]:
+        """Evaluate an incoming event against deterministic rules and return the semantic Activity, if any.
+
+        This represents the pure Decision -> Activity boundary without executing the activity.
+        """
+        now = self._time_provider()
+        idle_duration_s = max(0.0, now - self._idle_start_time)
+
+        # 1. Update companion mood for the incoming event
+        updated_mood = self._mood_manager.update_for_event(
+            event,
+            current_time=now,
+            idle_duration_s=idle_duration_s,
+            **kwargs,
+        )
+        if self._character is not None:
+            self._character.set_mood(updated_mood)
+
+        # 2. Assemble context and evaluate rules
+        context = self.get_current_context()
+        activity = self._rules.decide_activity(event, context, **kwargs)
+
+        if activity is not None:
+            self._last_activity = activity
+            self.activity_decided.emit(activity)
+
+        return activity
+
     def get_current_context(self) -> BehaviorContext:
         """Assemble current environmental context for rule evaluation."""
         now = self._time_provider()
@@ -268,6 +320,12 @@ class BehaviorEngine(QObject):
                 if is_behavior_available(b, anims)
             ]
 
+        desktop_ctx = (
+            self._context_sampler.current_context
+            if self._context_sampler is not None
+            else None
+        )
+
         return BehaviorContext(
             current_state=current_state,
             is_visible=self._is_visible,
@@ -282,6 +340,7 @@ class BehaviorEngine(QObject):
             available_behaviors=available_behaviors,
             policy=self._policy,
             mood=current_mood,
+            desktop_context=desktop_ctx,
         )
 
     def handle_event(self, event: str, **kwargs) -> BehaviorAction:
@@ -303,6 +362,12 @@ class BehaviorEngine(QObject):
         context = self.get_current_context()
         action = self._rules.evaluate(event, context, **kwargs)
 
+        # 3. Decision -> Activity boundary: record and emit semantic Activity if decided
+        if action.activity is not None:
+            self._last_activity = action.activity
+            self.activity_decided.emit(action.activity)
+
+        # 4. Compatibility execution bridge: apply action through legacy path
         if action.action_type != ACTION_NOOP:
             self._apply_action(action)
             self.action_executed.emit(action)
@@ -473,6 +538,10 @@ class BehaviorEngine(QObject):
             # Meaningful reaction to user cursor proximity counts as user interaction
             self.record_user_interaction()
         return action
+
+    def on_context_changed(self, context: DesktopContext) -> BehaviorAction:
+        """Slot invoked when meaningful desktop context transition occurs."""
+        return self.handle_event(EVENT_CONTEXT_CHANGED, desktop_context=context)
 
     def cleanup(self) -> None:
         """Clean up behavior engine resources during application shutdown."""
