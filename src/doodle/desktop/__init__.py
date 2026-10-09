@@ -1,6 +1,7 @@
 """Desktop window and shell components for Doodle."""
 
 from doodle.desktop.companion_window import CompanionWindow
+from doodle.desktop.coordinator import ActivityExecutionCoordinator
 from doodle.desktop.movement import (
     DEFAULT_MOVEMENT_SPEED_PX_PER_S,
     MovementDirection,
@@ -25,6 +26,7 @@ from doodle.desktop.proximity import (
 from doodle.desktop.tray import DoodleTrayIcon
 
 __all__ = [
+    "ActivityExecutionCoordinator",
     "CompanionWindow",
     "CursorProximityMonitor",
     "CursorProximityTracker",
